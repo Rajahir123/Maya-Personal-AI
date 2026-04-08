@@ -31,6 +31,7 @@ export class LiveSession {
           },
           onclose: () => {
             console.log("Live session closed");
+            this.session = null;
             callbacks.onClose?.();
           },
           onmessage: (message: LiveServerMessage) => {

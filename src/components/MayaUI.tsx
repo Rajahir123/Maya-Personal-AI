@@ -109,14 +109,19 @@ export default function MayaUI() {
     };
   }, []);
 
+  const isConnectingRef = useRef(false);
+
   const startSession = async () => {
+    if (isConnectingRef.current) return;
     if (!process.env.GEMINI_API_KEY) {
       addLog("Error: GEMINI_API_KEY missing", "alert");
       return;
     }
 
+    isConnectingRef.current = true;
     setStatus('connecting');
     addLog("Establishing neural link...", "info");
+    
     try {
       liveSessionRef.current = new LiveSession(process.env.GEMINI_API_KEY);
       await liveSessionRef.current.connect(
@@ -126,17 +131,24 @@ export default function MayaUI() {
           tools: TOOLS
         },
         {
-          onOpen: () => {
+          onOpen: async () => {
             setStatus('idle');
             addLog("Neural link established.", "info");
-            audioStreamerRef.current?.startCapture((base64) => {
-              liveSessionRef.current?.sendAudio(base64);
-            });
+            try {
+              await audioStreamerRef.current?.startCapture((base64) => {
+                liveSessionRef.current?.sendAudio(base64);
+              });
+            } catch (captureError: any) {
+              addLog(`Mic access failed: ${captureError.message || 'Unknown error'}`, "alert");
+              stopSession();
+              setIsPowerOn(false);
+            }
           },
           onClose: () => {
             setStatus('disconnected');
             setIsPowerOn(false);
             addLog("Neural link severed.", "alert");
+            isConnectingRef.current = false;
           },
           onMessage: (message) => {
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -185,14 +197,19 @@ export default function MayaUI() {
             setStatus('disconnected');
             setIsPowerOn(false);
             addLog(`Session error: ${err.message || 'Unknown error'}`, "alert");
+            isConnectingRef.current = false;
           }
         }
       );
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       setStatus('disconnected');
       setIsPowerOn(false);
-      addLog("Failed to connect to neural network.", "alert");
+      addLog(`Failed to connect: ${err.message || 'Unknown error'}`, "alert");
+      isConnectingRef.current = false;
+    } finally {
+      // We don't set isConnectingRef.current = false here because 
+      // the session might still be active or onClose might handle it
     }
   };
 
@@ -201,6 +218,7 @@ export default function MayaUI() {
     liveSessionRef.current?.disconnect();
     setStatus('disconnected');
     addLog("Session terminated manually.", "info");
+    isConnectingRef.current = false;
   };
 
   const togglePower = () => {
