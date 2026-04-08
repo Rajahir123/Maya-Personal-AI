@@ -1,0 +1,32 @@
+{
+  "entities": {
+    "UserMemory": {
+      "title": "User Memory",
+      "description": "Stores facts and summaries of interactions for a specific user.",
+      "type": "object",
+      "properties": {
+        "facts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "A list of facts Maya has learned about the user."
+        },
+        "summary": {
+          "type": "string",
+          "description": "A brief summary of the user's personality and past interactions."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The last time this memory was updated."
+        }
+      },
+      "required": ["facts", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/memory/profile": {
+      "schema": "UserMemory",
+      "description": "The primary memory profile for a user."
+    }
+  }
+}

@@ -23,7 +23,7 @@ export class LiveSession {
   }) {
     try {
       this.session = await this.ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: "gemini-2.0-flash-exp",
         callbacks: {
           onopen: () => {
             console.log("Live session opened");
@@ -39,7 +39,9 @@ export class LiveSession {
           },
           onerror: (error: any) => {
             console.error("Live session error:", error);
-            callbacks.onError?.(error);
+            // Extract more info if available
+            const errorMsg = error?.message || error?.toString() || "Unknown network error";
+            callbacks.onError?.(new Error(errorMsg));
           },
         },
         config: {

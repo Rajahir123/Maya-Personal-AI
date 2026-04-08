@@ -10,6 +10,12 @@ export class AudioStreamer {
 
   constructor(private sampleRate: number = 16000) {}
 
+  async resume() {
+    if (this.audioContext?.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+  }
+
   async startCapture(onAudioData: (base64Data: string) => void) {
     this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });

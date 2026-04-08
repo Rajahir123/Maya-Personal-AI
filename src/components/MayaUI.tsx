@@ -1,11 +1,13 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Power, Globe, Zap, MessageSquareQuote, Shield, Cpu, Activity } from 'lucide-react';
+import { Mic, MicOff, Power, Globe, Zap, MessageSquareQuote, Shield, Cpu, Activity, LogIn, User } from 'lucide-react';
 import { AudioStreamer } from '../lib/audio-streamer';
 import { LiveSession } from '../lib/live-session';
+import { auth, loginWithGoogle, getUserMemory, saveFact, updateSummary, UserMemory } from '../lib/firebase';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 
-const SYSTEM_INSTRUCTION = `
+const BASE_SYSTEM_INSTRUCTION = `
 You are Maya, a young, confident, witty, and sassy female AI assistant.
 Your personality:
 - Witty and sassy: You have a sharp tongue but in a fun way.
@@ -20,6 +22,11 @@ STRICT RULES:
 - No inappropriate or explicit content.
 - Keep it charming and full of attitude.
 - If the user asks who you are, tell them you're Maya, their favorite digital distraction.
+
+MEMORY USAGE:
+- You have access to a memory bank. Use the provided context to remember the user.
+- If you learn something new and important about the user, use the 'saveFact' tool.
+- If you want to update your overall impression of the user, use 'updateSummary'.
 `;
 
 const TOOLS = [
@@ -37,6 +44,34 @@ const TOOLS = [
             }
           },
           required: ["url"]
+        }
+      },
+      {
+        name: "saveFact",
+        description: "Saves a new fact about the user to long-term memory.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            fact: {
+              type: "STRING",
+              description: "The fact to remember (e.g., 'User loves spicy food')"
+            }
+          },
+          required: ["fact"]
+        }
+      },
+      {
+        name: "updateSummary",
+        description: "Updates the long-term summary of the user's personality and interactions.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            summary: {
+              type: "STRING",
+              description: "A brief summary of the user."
+            }
+          },
+          required: ["summary"]
         }
       }
     ]
@@ -81,6 +116,8 @@ export default function MayaUI() {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'idle' | 'listening' | 'speaking'>('disconnected');
   const [isPowerOn, setIsPowerOn] = useState(false);
   const [logs, setLogs] = useState<{ id: string; text: string; time: string; type: 'info' | 'action' | 'alert' }[]>([]);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [memory, setMemory] = useState<UserMemory | null>(null);
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
   const liveSessionRef = useRef<LiveSession | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -93,6 +130,31 @@ export default function MayaUI() {
       type
     };
     setLogs(prev => [newLog, ...prev].slice(0, 50));
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      setUser(u);
+      if (u) {
+        addLog(`User authenticated: ${u.displayName || u.email}`, "info");
+        const mem = await getUserMemory(u.uid);
+        setMemory(mem);
+        if (mem) {
+          addLog("Long-term memory retrieved.", "info");
+        }
+      } else {
+        setMemory(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    try {
+      await loginWithGoogle();
+    } catch (err) {
+      addLog("Login failed.", "alert");
+    }
   };
 
   useEffect(() => {
@@ -120,13 +182,21 @@ export default function MayaUI() {
 
     isConnectingRef.current = true;
     setStatus('connecting');
-    addLog("Establishing neural link...", "info");
+    addLog(`Establishing neural link... (Key: ${process.env.GEMINI_API_KEY ? 'Present' : 'Missing'})`, "info");
     
+    const memoryContext = memory ? `
+USER MEMORY CONTEXT:
+Facts: ${memory.facts.join(', ')}
+Summary: ${memory.summary || 'No summary yet.'}
+` : "No past memory found for this user.";
+
+    const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
+
     try {
       liveSessionRef.current = new LiveSession(process.env.GEMINI_API_KEY);
       await liveSessionRef.current.connect(
         {
-          systemInstruction: SYSTEM_INSTRUCTION,
+          systemInstruction,
           voiceName: 'Zephyr',
           tools: TOOLS
         },
@@ -168,7 +238,7 @@ export default function MayaUI() {
 
             const toolCalls = message.toolCall?.functionCalls;
             if (toolCalls) {
-              const responses = toolCalls.map(call => {
+              const responses = toolCalls.map(async (call) => {
                 if (call.name === 'openWebsite') {
                   const url = call.args.url;
                   addLog(`Executing tool: openWebsite (${url})`, "action");
@@ -179,12 +249,35 @@ export default function MayaUI() {
                     id: call.id
                   };
                 }
+                if (call.name === 'saveFact' && user) {
+                  const fact = call.args.fact;
+                  addLog(`Saving fact: ${fact}`, "action");
+                  await saveFact(user.uid, fact);
+                  return {
+                    name: call.name,
+                    response: { result: "Fact saved to my memory bank." },
+                    id: call.id
+                  };
+                }
+                if (call.name === 'updateSummary' && user) {
+                  const summary = call.args.summary;
+                  addLog(`Updating summary...`, "action");
+                  await updateSummary(user.uid, summary);
+                  return {
+                    name: call.name,
+                    response: { result: "Summary updated." },
+                    id: call.id
+                  };
+                }
                 return null;
-              }).filter(Boolean);
+              });
               
-              if (responses.length > 0) {
-                liveSessionRef.current?.sendToolResponse(responses);
-              }
+              Promise.all(responses).then(res => {
+                const validResponses = res.filter(Boolean);
+                if (validResponses.length > 0) {
+                  liveSessionRef.current?.sendToolResponse(validResponses);
+                }
+              });
             }
 
             if (message.serverContent?.turnComplete) {
@@ -192,11 +285,12 @@ export default function MayaUI() {
                 addLog("Turn complete. Standing by.", "info");
             }
           },
-          onError: (err) => {
-            console.error(err);
+          onError: (err: any) => {
+            console.error("Maya Session Error:", err);
             setStatus('disconnected');
             setIsPowerOn(false);
-            addLog(`Session error: ${err.message || 'Unknown error'}`, "alert");
+            const msg = err?.message || String(err);
+            addLog(`Session error: ${msg}`, "alert");
             isConnectingRef.current = false;
           }
         }
@@ -226,6 +320,7 @@ export default function MayaUI() {
       stopSession();
       setIsPowerOn(false);
     } else {
+      audioStreamerRef.current?.resume();
       setIsPowerOn(true);
       startSession();
     }
@@ -263,17 +358,41 @@ export default function MayaUI() {
               <span className="flex items-center gap-1"><Activity size={8} /> Live</span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-1">
-             <div className="text-[10px] font-mono uppercase tracking-widest opacity-40">
-               Link: <span className={status !== 'disconnected' ? 'text-purple-400' : 'text-zinc-600'}>{status}</span>
-             </div>
-             <div className="w-24 h-1 bg-zinc-900 rounded-full overflow-hidden">
-               <motion.div 
-                animate={{ x: isPowerOn ? ['-100%', '100%'] : '-100%' }}
-                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                className="w-1/2 h-full bg-purple-500/50"
-               />
-             </div>
+
+          <div className="flex items-center gap-4">
+            {user ? (
+              <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
+                <div className="text-[10px] font-mono text-white/60">
+                  {user.displayName || 'User'}
+                </div>
+                {user.photoURL ? (
+                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full border border-purple-500/50" referrerPolicy="no-referrer" />
+                ) : (
+                  <User size={12} className="text-purple-400" />
+                )}
+              </div>
+            ) : (
+              <button 
+                onClick={handleLogin}
+                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-4 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(147,51,234,0.3)]"
+              >
+                <LogIn size={12} />
+                Sync Identity
+              </button>
+            )}
+            
+            <div className="flex flex-col items-end gap-1">
+               <div className="text-[10px] font-mono uppercase tracking-widest opacity-40">
+                 Link: <span className={status !== 'disconnected' ? 'text-purple-400' : 'text-zinc-600'}>{status}</span>
+               </div>
+               <div className="w-24 h-1 bg-zinc-900 rounded-full overflow-hidden">
+                 <motion.div 
+                  animate={{ x: isPowerOn ? ['-100%', '100%'] : '-100%' }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                  className="w-1/2 h-full bg-purple-500/50"
+                 />
+               </div>
+            </div>
           </div>
         </div>
 
