@@ -23,7 +23,7 @@ export class LiveSession {
   }) {
     try {
       this.session = await this.ai.live.connect({
-        model: "gemini-2.0-flash-exp",
+        model: "gemini-3.1-flash-live-preview",
         callbacks: {
           onopen: () => {
             console.log("Live session opened");
