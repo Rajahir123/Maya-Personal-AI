@@ -28,7 +28,8 @@ SOCIAL MEDIA & ASSISTANT MODULE:
 - When sending messages, assume you are operating through the browser's digital bridge.
 - If the user hasn't opened WhatsApp Web, remind them that you need it open in a tab to "sync" properly.
 - You can send messages, check notifications, and manage social interactions.
-- Retrived notifications are displayed in the dedicated "Social Feed" panel in the Intelligence Hub sidebar. Point users there when you fetch their alerts.
+- Retrived notifications are displayed in the dedicated "Social Feed" panel in the Intelligence Hub sidebar on the right. Point users there when you fetch their alerts.
+- If the user cannot find the Activity Log or Social Feed, you can use the 'manageSystem' tool with 'show_intelligence_hub' to force the sidebar to expand for them.
 - You act as a full-scale personal assistant: managing calendars, alarms, system stats, and social life.
 
 SYSTEM CAPABILITIES & CHROME PERMISSIONS:
@@ -171,7 +172,7 @@ const TOOLS = [
           properties: {
             action: {
               type: "STRING",
-              enum: ["clear_logs", "reset_alarms", "optimize_neural_link"],
+              enum: ["clear_logs", "reset_alarms", "optimize_neural_link", "show_intelligence_hub"],
               description: "The management action to perform."
             }
           },
@@ -417,6 +418,10 @@ export default function MayaUI() {
       type
     };
     setLogs(prev => [newLog, ...prev].slice(0, 50));
+    // Maximize log if an alert comes through
+    if (type === 'alert') {
+      setIsLogMinimized(false);
+    }
   };
 
   useEffect(() => {
@@ -627,6 +632,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   addLog(`System management: ${action}`, "action");
                   if (action === 'clear_logs') setLogs([]);
                   if (action === 'reset_alarms') setAlarms([]);
+                  if (action === 'show_intelligence_hub') setIsLogMinimized(false);
                   if (action === 'optimize_neural_link') {
                     addLog("Optimizing neural pathways...", "info");
                     setTimeout(() => addLog("Neural link optimized.", "info"), 2000);
@@ -957,6 +963,14 @@ Summary: ${memory.summary || 'No summary yet.'}
           </div>
 
           <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setIsLogMinimized(!isLogMinimized)}
+              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10 text-[10px] font-mono transition-colors group"
+            >
+              <Activity size={12} className={isLogMinimized ? "text-zinc-500" : "text-purple-400"} />
+              <span className="opacity-40 group-hover:opacity-100 transition-opacity">Neural Hub</span>
+            </button>
+
             {user ? (
               <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
                 <div className="text-[10px] font-mono text-white/60">
@@ -1228,7 +1242,7 @@ Summary: ${memory.summary || 'No summary yet.'}
         className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden shadow-[-10px_0_30px_rgba(0,0,0,0.5)]"
       >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
-          {!isLogMinimized && (
+          {!isLogMinimized ? (
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1237,10 +1251,21 @@ Summary: ${memory.summary || 'No summary yet.'}
               <Activity size={12} className="text-purple-400" />
               <h2 className="text-[9px] font-mono uppercase tracking-[0.2em] text-white/60">Intelligence Hub</h2>
             </motion.div>
+          ) : (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center gap-4 mt-8"
+            >
+              <div className="rotate-90 text-[8px] font-mono uppercase tracking-[0.4em] text-purple-500/40 whitespace-nowrap">
+                Intelligence
+              </div>
+              <Activity size={12} className="text-purple-400 opacity-20" />
+            </motion.div>
           )}
           <button 
             onClick={() => setIsLogMinimized(!isLogMinimized)}
-            className="p-1 hover:bg-white/5 rounded transition-colors"
+            className={`p-1 hover:bg-white/5 rounded transition-colors ${isLogMinimized ? 'absolute top-4 left-1/2 -translate-x-1/2' : ''}`}
           >
             <motion.div animate={{ rotate: isLogMinimized ? 180 : 0 }}>
               <ExternalLink size={10} className="text-white/40" />
@@ -1300,10 +1325,13 @@ Summary: ${memory.summary || 'No summary yet.'}
             </div>
 
             {/* Activity Log Section */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              <div className="p-4 flex items-center gap-2 border-b border-white/5 bg-white/[0.02]">
-                <Activity size={10} className="text-purple-400" />
-                <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-white/40">Log stream</span>
+            <div className="flex-1 flex flex-col overflow-hidden bg-white/[0.01]">
+              <div className="p-4 flex items-center justify-between border-b border-white/5 bg-white/[0.03]">
+                <div className="flex items-center gap-2">
+                  <Activity size={10} className="text-purple-400" />
+                  <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-white/50">Activity Log Stream</span>
+                </div>
+                <div className="w-1 h-1 bg-purple-500 rounded-full animate-pulse" />
               </div>
               <div 
                 ref={logContainerRef}
