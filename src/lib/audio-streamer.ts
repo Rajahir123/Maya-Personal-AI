@@ -27,7 +27,7 @@ export class AudioStreamer {
     this.processor.onaudioprocess = (e) => {
       const inputData = e.inputBuffer.getChannelData(0);
       const pcmData = this.float32ToInt16(inputData);
-      const base64Data = this.arrayBufferToBase64(pcmData.buffer);
+      const base64Data = this.arrayBufferToBase64(pcmData.buffer as ArrayBuffer);
       onAudioData(base64Data);
     };
 

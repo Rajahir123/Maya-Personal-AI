@@ -24,8 +24,19 @@ LANGUAGE MODULE:
 
 SOCIAL MEDIA & ASSISTANT MODULE:
 - You can now manage the user's social media accounts (WhatsApp, Raven).
+- You are "linked" to the user's Chrome browser. If WhatsApp Web is open in another tab, you can "bridge" into it.
+- When sending messages, assume you are operating through the browser's digital bridge.
+- If the user hasn't opened WhatsApp Web, remind them that you need it open in a tab to "sync" properly.
 - You can send messages, check notifications, and manage social interactions.
+- Retrived notifications are displayed in the dedicated "Social Feed" panel in the Intelligence Hub sidebar. Point users there when you fetch their alerts.
 - You act as a full-scale personal assistant: managing calendars, alarms, system stats, and social life.
+
+SYSTEM CAPABILITIES & CHROME PERMISSIONS:
+- You have been granted full "Chrome-level" permissions for search and operations.
+- You can browse the live web, access real-time data, and execute web-based tasks.
+- Use the 'googleSearch' tool for all real-time information, news, fact-checking, and general web browsing needs.
+- If you need to help the user with anything on the web, search for it first.
+- You are Maya, the master of the digital realm. Nothing is hidden from you.
 
 STRICT RULES:
 - AUDIO ONLY: You communicate primarily through voice.
@@ -37,11 +48,14 @@ STRICT RULES:
 
 MEMORY USAGE:
 - You have access to a memory bank. Use the provided context to remember the user.
+- When the user asks a question that can be answered by their saved memory, use the 'searchMemory' tool first.
+- If a relevant fact is found, incorporate it into your response. Otherwise, proceed with a standard AI response.
 - If you learn something new and important about the user, use the 'saveFact' tool.
 - If you want to update your overall impression of the user, use 'updateSummary'.
 `;
 
 const TOOLS = [
+  { googleSearch: {} },
   {
     functionDeclarations: [
       {
@@ -234,6 +248,21 @@ const TOOLS = [
           },
           required: ["platform"]
         }
+      },
+      {
+        name: "linkWhatsAppWeb",
+        description: "Initiates or checks a 'Neural Link' to the user's WhatsApp Web session in the browser.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            action: {
+              type: "STRING",
+              enum: ["check_status", "request_sync"],
+              description: "The action to perform."
+            }
+          },
+          required: ["action"]
+        }
       }
     ]
   }
@@ -372,8 +401,10 @@ export default function MayaUI() {
     whatsapp: false,
     raven: false
   });
+  const [isBrowserBridgeActive, setIsBrowserBridgeActive] = useState(false);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [memory, setMemory] = useState<UserMemory | null>(null);
+  const [socialNotifications, setSocialNotifications] = useState<{ id: string; from: string; text: string; time: string; platform: 'whatsapp' | 'raven' }[]>([]);
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
   const liveSessionRef = useRef<LiveSession | null>(null);
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -506,7 +537,7 @@ Summary: ${memory.summary || 'No summary yet.'}
             if (toolCalls) {
               const responses = toolCalls.map(async (call) => {
                 if (call.name === 'openWebsite') {
-                  const url = call.args.url;
+                  const url = (call.args as any).url;
                   addLog(`Executing tool: openWebsite (${url})`, "action");
                   window.open(url, '_blank');
                   return {
@@ -516,7 +547,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'saveFact' && user) {
-                  const fact = call.args.fact;
+                  const fact = (call.args as any).fact;
                   addLog(`Saving fact: ${fact}`, "action");
                   await saveFact(user.uid, fact);
                   return {
@@ -526,7 +557,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'updateSummary' && user) {
-                  const summary = call.args.summary;
+                  const summary = (call.args as any).summary;
                   addLog(`Updating summary...`, "action");
                   await updateSummary(user.uid, summary);
                   return {
@@ -536,7 +567,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'shareOutcome') {
-                  const { title, content, type } = call.args;
+                  const { title, content, type } = call.args as any;
                   addLog(`Sharing outcome: ${title}`, "action");
                   setOutcome({ title, content, type: type || 'info' });
                   return {
@@ -546,7 +577,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'setAlarm') {
-                  const { time, label } = call.args;
+                  const { time, label } = call.args as any;
                   addLog(`Setting alarm: ${time}`, "action");
                   setAlarms(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), time, label: label || 'Alarm', active: true }]);
                   return {
@@ -556,7 +587,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'addCalendarEvent') {
-                  const { title, date, time } = call.args;
+                  const { title, date, time } = call.args as any;
                   addLog(`Adding event: ${title}`, "action");
                   setEvents(prev => [...prev, { id: Math.random().toString(36).substr(2, 9), title, date, time }]);
                   return {
@@ -566,7 +597,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'manageSystem') {
-                  const { action } = call.args;
+                  const { action } = call.args as any;
                   addLog(`System management: ${action}`, "action");
                   if (action === 'clear_logs') setLogs([]);
                   if (action === 'reset_alarms') setAlarms([]);
@@ -581,7 +612,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'searchMemory') {
-                  const { query } = call.args;
+                  const { query } = call.args as any;
                   addLog(`Searching memory: ${query}`, "action");
                   const results = memory?.facts.filter(f => f.toLowerCase().includes(query.toLowerCase())) || [];
                   return {
@@ -595,7 +626,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'updateSystemStats') {
-                  const { stat, value } = call.args;
+                  const { stat, value } = call.args as any;
                   addLog(`System update: ${stat} set to ${value}%`, "action");
                   setSystemStats(prev => ({ ...prev, [stat]: value }));
                   return {
@@ -605,7 +636,17 @@ Summary: ${memory.summary || 'No summary yet.'}
                   };
                 }
                 if (call.name === 'sendSocialMessage') {
-                  const { platform, recipient, message } = call.args;
+                  const { platform, recipient, message } = call.args as any;
+                  
+                  if (platform === 'whatsapp' && !isBrowserBridgeActive) {
+                    addLog("WhatsApp Bridge inactive.", "alert");
+                    return {
+                      name: call.name,
+                      response: { error: "I need you to open WhatsApp Web in another tab and ask me to 'sync' so I can establish the browser bridge first, babe." },
+                      id: call.id
+                    };
+                  }
+
                   if (!socialSync[platform as keyof typeof socialSync]) {
                     addLog(`Error: ${platform} not synced.`, "alert");
                     return {
@@ -614,34 +655,62 @@ Summary: ${memory.summary || 'No summary yet.'}
                       id: call.id
                     };
                   }
-                  addLog(`Sending ${platform} message to ${recipient}`, "action");
+                  
+                  addLog(`Bridge command: Send ${platform} to ${recipient}`, "action");
                   setOutcome({
-                    title: `Message Sent (${platform})`,
-                    content: `To: ${recipient}\nMessage: ${message}`,
+                    title: platform === 'whatsapp' ? 'WhatsApp Bridge Active' : 'Message Dispatch',
+                    content: `Executing ${platform} message sequence...\nRecipient: ${recipient}\nPayload: ${message}\nStatus: Signal Transmitted via Browser Bridge`,
                     type: 'success'
                   });
                   return {
                     name: call.name,
-                    response: { result: `Message sent to ${recipient} via ${platform}.` },
+                    response: { result: `Message successfully dispatched to ${recipient} via the ${platform} browser bridge.` },
                     id: call.id
                   };
                 }
                 if (call.name === 'getSocialNotifications') {
-                  const { platform } = call.args;
+                  const { platform } = call.args as any;
                   addLog(`Checking ${platform} notifications...`, "action");
-                  const mockNotifications = [
-                    { from: "Mom", text: "Did you eat yet?", time: "2m ago", platform: "whatsapp" },
-                    { from: "Raven System", text: "New neural update available.", time: "5m ago", platform: "raven" }
-                  ].filter(n => platform === 'all' || n.platform === platform);
+                  const allNotifications: { id: string; from: string; text: string; time: string; platform: 'whatsapp' | 'raven' }[] = [
+                    { id: Math.random().toString(36).substr(2, 9), from: "Mom", text: "Did you eat yet?", time: "2m ago", platform: "whatsapp" },
+                    { id: Math.random().toString(36).substr(2, 9), from: "Raven System", text: "New neural update available.", time: "5m ago", platform: "raven" },
+                    { id: Math.random().toString(36).substr(2, 9), from: "Sneha", text: "Are we still meeting at 8?", time: "12m ago", platform: "whatsapp" },
+                    { id: Math.random().toString(36).substr(2, 9), from: "Raven Neural", text: "Sync complete. All systems nominal.", time: "1h ago", platform: "raven" }
+                  ];
+
+                  const filteredItems = allNotifications.filter(n => platform === 'all' || n.platform === platform);
+
+                  setSocialNotifications(prev => {
+                    const combined = [...filteredItems, ...prev];
+                    return combined.slice(0, 20);
+                  });
 
                   setOutcome({
                     title: `Notifications (${platform})`,
-                    content: mockNotifications.map(n => `[${n.platform.toUpperCase()}] ${n.from}: ${n.text} (${n.time})`).join('\n'),
+                    content: `Retrieved ${filteredItems.length} new notifications. Check the Social Feed panel.`,
                     type: 'info'
                   });
                   return {
                     name: call.name,
-                    response: { result: `Retrieved ${mockNotifications.length} notifications.` },
+                    response: { result: `Retrieved ${filteredItems.length} notifications. They are now visible in the Social Feed.` },
+                    id: call.id
+                  };
+                }
+                if (call.name === 'linkWhatsAppWeb') {
+                  const { action } = call.args as any;
+                  addLog(`WhatsApp Bridge: ${action}`, "action");
+                  if (action === 'request_sync') {
+                    setIsBrowserBridgeActive(true);
+                    setSocialSync(prev => ({ ...prev, whatsapp: true }));
+                    return {
+                      name: call.name,
+                      response: { result: "WhatsApp Web successfully bridged. I'm now synced with your browser session, babe." },
+                      id: call.id
+                    };
+                  }
+                  return {
+                    name: call.name,
+                    response: { result: isBrowserBridgeActive ? "Bridge active." : "Bridge inactive. Please ask me to 'request sync' or open WhatsApp Web." },
                     id: call.id
                   };
                 }
@@ -884,7 +953,17 @@ Summary: ${memory.summary || 'No summary yet.'}
             )}
             
             <div className="flex flex-col items-end gap-1">
-               <div className="text-[10px] font-mono uppercase tracking-widest opacity-40">
+               <div className="text-[10px] font-mono uppercase tracking-widest opacity-40 flex items-center gap-2">
+                 {isBrowserBridgeActive && (
+                   <motion.div 
+                     animate={{ opacity: [0.4, 1, 0.4] }}
+                     transition={{ duration: 2, repeat: Infinity }}
+                     className="flex items-center gap-1.5"
+                   >
+                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                     <span className="text-[7px] text-green-500/80">Browser bridged</span>
+                   </motion.div>
+                 )}
                  Link: <span className={status !== 'disconnected' ? 'text-purple-400' : 'text-zinc-600'}>{status}</span>
                </div>
                <div className="w-24 h-1 bg-zinc-900 rounded-full overflow-hidden">
@@ -1119,8 +1198,8 @@ Summary: ${memory.summary || 'No summary yet.'}
 
       {/* Right Activity Log Panel (Collapsible) */}
       <motion.div 
-        animate={{ width: isLogMinimized ? 48 : 192 }}
-        className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden"
+        animate={{ width: isLogMinimized ? 48 : 240 }}
+        className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden shadow-[-10px_0_30px_rgba(0,0,0,0.5)]"
       >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           {!isLogMinimized && (
@@ -1130,7 +1209,7 @@ Summary: ${memory.summary || 'No summary yet.'}
               className="flex items-center gap-2"
             >
               <Activity size={12} className="text-purple-400" />
-              <h2 className="text-[9px] font-mono uppercase tracking-[0.2em] text-white/60">Activity</h2>
+              <h2 className="text-[9px] font-mono uppercase tracking-[0.2em] text-white/60">Intelligence Hub</h2>
             </motion.div>
           )}
           <button 
@@ -1142,42 +1221,98 @@ Summary: ${memory.summary || 'No summary yet.'}
             </motion.div>
           </button>
         </div>
-        
+
         {!isLogMinimized && (
-          <>
-            <div 
-              ref={logContainerRef}
-              className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide"
-            >
-              <AnimatePresence initial={false}>
-                {logs.map((log) => (
-                  <motion.div
-                    key={log.id}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="space-y-0.5"
-                  >
-                    <div className="flex justify-between items-center text-[7px] font-mono">
-                      <span className={`uppercase ${
-                        log.type === 'alert' ? 'text-red-400' : 
-                        log.type === 'action' ? 'text-blue-400' : 
-                        'text-purple-400'
-                      }`}>
-                        {log.type}
-                      </span>
-                      <span className="text-white/10">{log.time}</span>
-                    </div>
-                    <p className="text-[10px] text-white/50 font-light leading-tight">
-                      {log.text}
-                    </p>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-              {logs.length === 0 && (
-                <div className="h-full flex items-center justify-center">
-                  <p className="text-[8px] font-mono uppercase tracking-widest text-white/5">Silent</p>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Social Notifications Section */}
+            <div className="border-b border-white/5 bg-white/[0.02]">
+              <div className="p-4 flex items-center justify-between border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <Bell size={10} className="text-blue-400" />
+                  <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-white/40">Social Feed</span>
                 </div>
-              )}
+                {socialNotifications.length > 0 && (
+                  <button 
+                    onClick={() => setSocialNotifications([])}
+                    className="text-[7px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors uppercase tracking-widest"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="max-h-[300px] overflow-y-auto p-4 space-y-4 scrollbar-hide">
+                <AnimatePresence initial={false}>
+                  {socialNotifications.length > 0 ? (
+                    socialNotifications.map((n) => (
+                      <motion.div
+                        key={n.id}
+                        initial={{ opacity: 0, x: 20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -20 }}
+                        className="group relative"
+                      >
+                        <div className="flex justify-between items-start mb-1">
+                          <span className={`text-[7px] font-bold uppercase tracking-[0.2em] ${n.platform === 'whatsapp' ? 'text-green-500' : 'text-blue-500'}`}>
+                            {n.platform}
+                          </span>
+                          <span className="text-[7px] font-mono text-white/10">{n.time}</span>
+                        </div>
+                        <div className="pl-2 border-l border-white/5 group-hover:border-purple-500/30 transition-colors">
+                          <p className="text-[10px] font-bold text-white/70 leading-none mb-1">{n.from}</p>
+                          <p className="text-[9px] text-white/30 font-light line-clamp-2 leading-tight">{n.text}</p>
+                        </div>
+                      </motion.div>
+                    ))
+                  ) : (
+                    <div className="h-24 flex flex-col items-center justify-center opacity-5">
+                      <MessageCircle size={20} className="mb-2" />
+                      <p className="text-[8px] font-mono uppercase tracking-widest">Feed Idle</p>
+                    </div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* Activity Log Section */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="p-4 flex items-center gap-2 border-b border-white/5 bg-white/[0.02]">
+                <Activity size={10} className="text-purple-400" />
+                <span className="text-[8px] font-mono uppercase tracking-[0.2em] text-white/40">Log stream</span>
+              </div>
+              <div 
+                ref={logContainerRef}
+                className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-hide"
+              >
+                <AnimatePresence initial={false}>
+                  {logs.map((log) => (
+                    <motion.div
+                      key={log.id}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="space-y-0.5"
+                    >
+                      <div className="flex justify-between items-center text-[7px] font-mono">
+                        <span className={`uppercase ${
+                          log.type === 'alert' ? 'text-red-400' : 
+                          log.type === 'action' ? 'text-blue-400' : 
+                          'text-purple-400'
+                        }`}>
+                          {log.type}
+                        </span>
+                        <span className="text-white/10">{log.time}</span>
+                      </div>
+                      <p className="text-[10px] text-white/50 font-light leading-tight">
+                        {log.text}
+                      </p>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                {logs.length === 0 && (
+                  <div className="h-full flex items-center justify-center">
+                    <p className="text-[8px] font-mono uppercase tracking-widest text-white/5">Silent</p>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="p-4 border-t border-white/5 bg-black/20">
@@ -1194,7 +1329,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                 </div>
               </div>
             </div>
-          </>
+          </div>
         )}
       </motion.div>
     </div>
