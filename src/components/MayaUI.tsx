@@ -437,19 +437,32 @@ export default function MayaUI() {
   }, []);
 
   const handleLogin = async () => {
-    addLog("Initiating Google Sync...", "info");
+    addLog("Neural Link: Initiating Identity Sync...", "info");
     try {
-      await loginWithGoogle();
+      // In iframes, popups can be finicky. Let's warn the user.
+      const syncTimeout = setTimeout(() => {
+        addLog("Sync window delayed? Check for popup blockers or use a new tab.", "info");
+      }, 4000);
+
+      const u = await loginWithGoogle();
+      clearTimeout(syncTimeout);
+
+      if (u) {
+        addLog(`Identity Synced: Welcome, ${u.displayName}`, "info");
+      }
     } catch (err: any) {
-      console.error("Login error:", err);
+      console.error("Login Error Detail:", err);
       const errorCode = err?.code || "unknown";
-      addLog(`Login failed: ${errorCode}`, "alert");
+      const errorMsg = err?.message || "";
+      
+      addLog(`Sync Failed: ${errorCode}`, "alert");
+      
       if (errorCode === 'auth/popup-blocked') {
-        addLog("Hint: Check your browser's popup blocker.", "info");
-      } else if (errorCode === 'auth/unauthorized-domain') {
-        addLog("Hint: This domain isn't allowlisted in Firebase Console.", "alert");
+        addLog("Neural override failed: Popup was blocked by browser.", "alert");
+      } else if (errorMsg.includes("cross-origin")) {
+        addLog("Sync blocked: Opening the app in a new tab is required for Google Sync.", "alert");
       } else {
-        addLog("Try opening the app in a new tab.", "info");
+        addLog("Hint: Try refreshing or using a different browser.", "info");
       }
     }
   };
@@ -490,6 +503,15 @@ Summary: ${memory.summary || 'No summary yet.'}
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
     try {
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY') {
+        addLog("Fatal: Neural Key (GEMINI_API_KEY) not configured.", "alert");
+        addLog("Please set your Gemini API Key in the Secrets panel.", "info");
+        setStatus('disconnected');
+        setIsPowerOn(false);
+        isConnectingRef.current = false;
+        return;
+      }
+
       liveSessionRef.current = new LiveSession(process.env.GEMINI_API_KEY);
       await liveSessionRef.current.connect(
         {
@@ -499,14 +521,18 @@ Summary: ${memory.summary || 'No summary yet.'}
         },
         {
           onOpen: async () => {
+            isConnectingRef.current = false;
             setStatus('idle');
-            addLog("Neural link established.", "info");
+            addLog("Neural link connected and stable.", "info");
             try {
               await audioStreamerRef.current?.startCapture((base64) => {
                 liveSessionRef.current?.sendAudio(base64);
               });
             } catch (captureError: any) {
-              addLog(`Mic access failed: ${captureError.message || 'Unknown error'}`, "alert");
+              console.error("Mic capture failed:", captureError);
+              const errMsg = captureError.message || 'Permission denied or no device';
+              addLog(`Mic capture error: ${errMsg}`, "alert");
+              addLog("Hint: Allow microphone access in your browser settings.", "info");
               stopSession();
               setIsPowerOn(false);
             }
@@ -514,7 +540,7 @@ Summary: ${memory.summary || 'No summary yet.'}
           onClose: () => {
             setStatus('disconnected');
             setIsPowerOn(false);
-            addLog("Neural link severed.", "alert");
+            addLog("Neural link severed (Connection closed).", "alert");
             isConnectingRef.current = false;
           },
           onMessage: (message) => {
