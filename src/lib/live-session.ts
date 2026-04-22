@@ -41,7 +41,11 @@ export class LiveSession {
           onerror: (error: any) => {
             console.error("Live session protocol error:", error);
             const errorMsg = error?.message || error?.toString() || "Unknown neural protocol error";
-            callbacks.onError?.(new Error(errorMsg));
+            if (errorMsg.includes("unauthorized domain")) {
+              callbacks.onError?.(new Error("UNAUTHORIZED_DOMAIN: Please add this URL to Firebase Auth > Authorized domains."));
+            } else {
+              callbacks.onError?.(new Error(errorMsg));
+            }
           },
         },
         config: {

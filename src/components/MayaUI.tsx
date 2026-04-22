@@ -394,6 +394,8 @@ export default function MayaUI() {
   const [isLogMinimized, setIsLogMinimized] = useState(false);
   const [showNeuralConfig, setShowNeuralConfig] = useState(false);
   const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('maya_neural_key') || '');
+  const reconnectCountRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 3;
   const [systemStats, setSystemStats] = useState({
     volume: 80,
     brightness: 100,
@@ -471,6 +473,9 @@ export default function MayaUI() {
       
       if (errorCode === 'auth/popup-blocked') {
         addLog("Neural override failed: Popup was blocked by browser.", "alert");
+      } else if (errorCode === 'auth/unauthorized-domain') {
+        addLog("Security Alert: This domain is not authorized in Firebase.", "alert");
+        addLog("Go to Firebase Console > Authentication > Settings > Authorized domains to add this URL.", "info");
       } else if (errorMsg.includes("cross-origin")) {
         addLog("Sync blocked: Opening the app in a new tab is required for Google Sync.", "alert");
       } else {
@@ -536,6 +541,7 @@ Summary: ${memory.summary || 'No summary yet.'}
         },
         {
           onOpen: async () => {
+            reconnectCountRef.current = 0;
             isConnectingRef.current = false;
             setStatus('idle');
             addLog("Neural link connected and stable.", "info");
@@ -553,10 +559,23 @@ Summary: ${memory.summary || 'No summary yet.'}
             }
           },
           onClose: () => {
-            setStatus('disconnected');
-            setIsPowerOn(false);
-            addLog("Neural link severed (Connection closed).", "alert");
-            isConnectingRef.current = false;
+            if (isPowerOn && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
+              reconnectCountRef.current++;
+              setStatus('connecting');
+              addLog(`Neural link severed. Attempting recovery (${reconnectCountRef.current}/${MAX_RECONNECT_ATTEMPTS})...`, "alert");
+              setTimeout(() => {
+                if (isPowerOn) startSession();
+              }, 2000);
+            } else {
+              setStatus('disconnected');
+              setIsPowerOn(false);
+              addLog("Neural link severed (Connection closed).", "alert");
+              if (reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) {
+                addLog("Max recovery attempts reached. Please check your network or neural key.", "info");
+              }
+              isConnectingRef.current = false;
+              reconnectCountRef.current = 0;
+            }
           },
           onMessage: (message) => {
             const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
@@ -804,6 +823,7 @@ Summary: ${memory.summary || 'No summary yet.'}
 
   const togglePower = async () => {
     if (isPowerOn) {
+      reconnectCountRef.current = 0;
       stopSession();
       setIsPowerOn(false);
     } else {
@@ -919,9 +939,18 @@ Summary: ${memory.summary || 'No summary yet.'}
 
         {/* System Dashboard Panel */}
         <div className="p-6 border-t border-white/5 bg-black/20">
-          <div className="flex items-center gap-2 mb-6">
-            <Cpu size={14} className="text-blue-400" />
-            <h2 className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/60">Neural Dashboard</h2>
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Cpu size={14} className="text-blue-400" />
+              <h2 className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/60">Neural Dashboard</h2>
+            </div>
+            <button 
+              onClick={() => setShowNeuralConfig(true)}
+              className="p-1.5 hover:bg-white/10 rounded-lg transition-all group"
+              title="Global Settings"
+            >
+              <Settings size={12} className="text-white/20 group-hover:text-blue-400 transition-colors" />
+            </button>
           </div>
           <div className="space-y-4">
             {[
@@ -1513,16 +1542,23 @@ Summary: ${memory.summary || 'No summary yet.'}
                 onClick={() => {
                   setCustomApiKey('');
                   localStorage.removeItem('maya_neural_key');
+                  addLog("Neural Key wiped from local storage.", "alert");
                 }}
                 className="px-6 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest text-white/40 hover:text-red-400 transition-colors"
               >
-                Clear Node
+                Wipe Key
               </button>
               <button 
-                onClick={() => setShowNeuralConfig(false)}
-                className="bg-white/5 hover:bg-white/10 border border-white/10 px-8 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest text-white transition-all"
+                onClick={() => {
+                  setShowNeuralConfig(false);
+                  addLog("Neural configuration updated and saved.", "info");
+                  if (customApiKey && !isPowerOn) {
+                    addLog("Link ready. Tap the central core to initialize.", "info");
+                  }
+                }}
+                className="bg-blue-600 hover:bg-blue-500 border border-blue-400/30 px-8 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest text-white transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)]"
               >
-                Seal Link
+                Save & Apply
               </button>
             </div>
           </motion.div>
