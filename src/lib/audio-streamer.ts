@@ -52,8 +52,12 @@ export class AudioStreamer {
       onAudioData(base64Data);
     };
 
+    const silentGain = this.audioContext.createGain();
+    silentGain.gain.value = 0;
+
     this.source.connect(this.processor);
-    // this.processor.connect(this.audioContext.destination); // feedback loop removed
+    this.processor.connect(silentGain);
+    silentGain.connect(this.audioContext.destination);
   }
 
   stopCapture() {

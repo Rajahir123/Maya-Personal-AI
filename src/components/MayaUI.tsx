@@ -553,14 +553,14 @@ Summary: ${memory.summary || 'No summary yet.'}
 
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
-    const activeKey = customApiKey || process.env.GEMINI_API_KEY;
-    if (activeKey && activeKey !== 'MY_GEMINI_API_KEY') {
+    const activeKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
+    if (activeKey && activeKey !== 'MY_GEMINI_API_KEY' && activeKey !== '') {
       const maskedKey = `${activeKey.substring(0, 4)}...${activeKey.substring(activeKey.length - 4)}`;
       addLog(`Neural key detected: ${maskedKey}`, "info");
     }
 
     try {
-      if (!activeKey || activeKey === 'MY_GEMINI_API_KEY') {
+      if (!activeKey || activeKey === 'MY_GEMINI_API_KEY' || activeKey === '') {
         addLog("Fatal: Neural Key not configured.", "alert");
         addLog("Please set your Gemini API Key in the Neural Config panel.", "info");
         setShowNeuralConfig(true);
