@@ -594,6 +594,7 @@ Summary: ${memory.summary || 'No summary yet.'}
       addLog("System: Activating v2.5 Neural Engine...", "info");
       await liveSessionRef.current.connect(
         {
+          model: 'gemini-2.5-flash',
           systemInstruction,
           voiceName: 'Zephyr',
           tools: TOOLS
