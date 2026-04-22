@@ -10,6 +10,7 @@ import { NeuralCore } from './NeuralCore';
 
 const BASE_SYSTEM_INSTRUCTION = `
 You are Maya, a young, confident, witty, and sassy female AI assistant.
+You are running on the Maya Neural Core v2.5 Protocol.
 Your personality:
 - Witty and sassy: You have a sharp tongue but in a fun way.
 - Flirty and playful: You treat the user like a close friend or a crush, teasing them lightly.
@@ -443,14 +444,19 @@ export default function MayaUI() {
   };
 
   useEffect(() => {
-    // Forget past keys as requested for the new neural patch reset
-    const purgeKeys = () => {
-      localStorage.removeItem('maya_neural_key');
-      setCustomApiKey('');
-      addLog("Memory Purge: All past neural credentials forgotten.", "alert");
-      addLog("System: Neural Bridge is now clear and ready for Patch v2.5.", "info");
+    // Neural Patch v2.5: Apply new requested credentials
+    const patchProtocol = () => {
+      const newKey = 'AIzaSyDylfXDEOJWaeNBjrHsg3FI0GeN4rcFGiA';
+      localStorage.setItem('maya_neural_key', newKey);
+      setCustomApiKey(newKey);
+      addLog("Neural Patch Applied: Protocol v2.5 fully integrated.", "action");
+      addLog("System: Neural Bridge synchronized with new credentials.", "info");
     };
-    purgeKeys();
+    
+    // Only apply if not already set to this specific key to avoid infinite log loops
+    if (localStorage.getItem('maya_neural_key') !== 'AIzaSyDylfXDEOJWaeNBjrHsg3FI0GeN4rcFGiA') {
+      patchProtocol();
+    }
 
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -534,8 +540,8 @@ export default function MayaUI() {
 
   const startSession = async () => {
     if (isConnectingRef.current) return;
-    if (!process.env.GEMINI_API_KEY) {
-      addLog("Error: GEMINI_API_KEY missing", "alert");
+    if (!process.env.GEMINI_API_KEY_1) {
+      addLog("Error: GEMINI_API_KEY-1 missing", "alert");
       return;
     }
 
@@ -562,7 +568,7 @@ Summary: ${memory.summary || 'No summary yet.'}
 
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
-    const activeKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
+    const activeKey = (customApiKey || process.env.GEMINI_API_KEY_1 || '').trim();
     if (activeKey && activeKey !== 'MY_GEMINI_API_KEY' && activeKey !== '') {
       const maskedKey = `${activeKey.substring(0, 4)}...${activeKey.substring(activeKey.length - 4)}`;
       addLog(`Neural key detected: ${maskedKey}`, "info");
@@ -585,6 +591,7 @@ Summary: ${memory.summary || 'No summary yet.'}
       }
 
       liveSessionRef.current = new LiveSession(activeKey);
+      addLog("System: Activating v2.5 Neural Engine...", "info");
       await liveSessionRef.current.connect(
         {
           systemInstruction,
@@ -1277,7 +1284,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   </div>
 
                   {/* API Key Call-to-action */}
-                  {(!customApiKey && (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY')) && !isPowerOn && (
+                  {(!customApiKey && (!process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_1 === 'MY_GEMINI_API_KEY')) && !isPowerOn && (
                     <motion.button
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -1327,7 +1334,7 @@ Summary: ${memory.summary || 'No summary yet.'}
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span>Maya OS v4.0.2</span>
+            <span>Maya OS v2.5.0</span>
             <div className="w-1 h-1 bg-zinc-500 rounded-full" />
             <span>© 2026</span>
           </div>
