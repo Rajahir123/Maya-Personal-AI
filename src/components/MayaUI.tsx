@@ -540,8 +540,8 @@ export default function MayaUI() {
 
   const startSession = async () => {
     if (isConnectingRef.current) return;
-    if (!process.env.GEMINI_API_KEY_1) {
-      addLog("Error: GEMINI_API_KEY-1 missing", "alert");
+    if (!process.env.GEMINI_API_KEY) {
+      addLog("Error: GEMINI_API_KEY missing", "alert");
       return;
     }
 
@@ -568,7 +568,7 @@ Summary: ${memory.summary || 'No summary yet.'}
 
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
-    const activeKey = (customApiKey || process.env.GEMINI_API_KEY_1 || '').trim();
+    const activeKey = (customApiKey || process.env.GEMINI_API_KEY || '').trim();
     if (activeKey && activeKey !== 'MY_GEMINI_API_KEY' && activeKey !== '') {
       const maskedKey = `${activeKey.substring(0, 4)}...${activeKey.substring(activeKey.length - 4)}`;
       addLog(`Neural key detected: ${maskedKey}`, "info");
@@ -594,7 +594,6 @@ Summary: ${memory.summary || 'No summary yet.'}
       addLog("System: Activating v2.5 Neural Engine...", "info");
       await liveSessionRef.current.connect(
         {
-          model: 'gemini-2.5-flash',
           systemInstruction,
           voiceName: 'Zephyr',
           tools: TOOLS
@@ -1285,7 +1284,7 @@ Summary: ${memory.summary || 'No summary yet.'}
                   </div>
 
                   {/* API Key Call-to-action */}
-                  {(!customApiKey && (!process.env.GEMINI_API_KEY_1 || process.env.GEMINI_API_KEY_1 === 'MY_GEMINI_API_KEY')) && !isPowerOn && (
+                  {(!customApiKey && (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY')) && !isPowerOn && (
                     <motion.button
                       initial={{ opacity: 0, y: 10 }}
                       animate={{ opacity: 1, y: 0 }}

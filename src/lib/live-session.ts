@@ -23,7 +23,7 @@ export class LiveSession {
     onError?: (error: any) => void;
   }) {
     try {
-      const modelName = config.model || "gemini-2.5-flash";
+      const modelName = config.model || "gemini-3.1-flash-live-preview";
       console.log("Connecting with model:", modelName);
       this.session = await this.ai.live.connect({
         model: modelName,
