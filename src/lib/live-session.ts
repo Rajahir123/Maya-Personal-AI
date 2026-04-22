@@ -22,15 +22,16 @@ export class LiveSession {
     onError?: (error: any) => void;
   }) {
     try {
+      console.log("Connecting with model:", "gemini-3.1-flash-live-preview");
       this.session = await this.ai.live.connect({
         model: "gemini-3.1-flash-live-preview",
         callbacks: {
           onopen: () => {
-            console.log("Live session opened");
+            console.log("Live session connection established (WebSocket open)");
             callbacks.onOpen?.();
           },
-          onclose: () => {
-            console.log("Live session closed");
+          onclose: (event: any) => {
+            console.log("Live session connection closed by server or network:", event);
             this.session = null;
             callbacks.onClose?.();
           },
@@ -38,9 +39,8 @@ export class LiveSession {
             callbacks.onMessage?.(message);
           },
           onerror: (error: any) => {
-            console.error("Live session error:", error);
-            // Extract more info if available
-            const errorMsg = error?.message || error?.toString() || "Unknown network error";
+            console.error("Live session protocol error:", error);
+            const errorMsg = error?.message || error?.toString() || "Unknown neural protocol error";
             callbacks.onError?.(new Error(errorMsg));
           },
         },

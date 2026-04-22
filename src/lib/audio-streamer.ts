@@ -4,9 +4,8 @@ export class AudioStreamer {
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private playbackQueue: Int16Array[] = [];
-  private isPlaying = false;
   private nextStartTime = 0;
+  private activeSources: AudioBufferSourceNode[] = [];
 
   constructor(private sampleRate: number = 16000) {}
 
@@ -16,9 +15,31 @@ export class AudioStreamer {
     }
   }
 
+  /**
+   * Request microphone permissions. Should be called within a user gesture.
+   */
+  async requestPermissions(): Promise<MediaStream> {
+    try {
+      if (this.stream) return this.stream;
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      return this.stream;
+    } catch (error) {
+      console.error("Failed to get user media:", error);
+      throw error;
+    }
+  }
+
   async startCapture(onAudioData: (base64Data: string) => void) {
-    this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!this.stream) {
+      this.stream = await this.requestPermissions();
+    }
+    
+    if (!this.audioContext) {
+      this.audioContext = new AudioContext({ sampleRate: this.sampleRate });
+    } else if (this.audioContext.state === 'suspended') {
+      await this.audioContext.resume();
+    }
+
     this.source = this.audioContext.createMediaStreamSource(this.stream);
     
     // Using ScriptProcessorNode for simplicity in this environment
@@ -38,12 +59,15 @@ export class AudioStreamer {
   stopCapture() {
     this.source?.disconnect();
     this.processor?.disconnect();
+    this.source = null;
+    this.processor = null;
     this.stream?.getTracks().forEach(track => track.stop());
-    this.audioContext?.close();
-    this.audioContext = null;
+    this.stream = null;
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
   }
-
-  private activeSources: AudioBufferSourceNode[] = [];
 
   async playAudioChunk(base64Data: string) {
     if (!this.audioContext) {

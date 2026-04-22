@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Mic, MicOff, Power, Globe, Zap, MessageSquareQuote, Shield, Cpu, Activity, LogIn, User, Calendar, Bell, ExternalLink, Sparkles, LogOut, X, MessageCircle, Send, Share2 } from 'lucide-react';
+import { Mic, MicOff, Power, Globe, Zap, MessageSquareQuote, Shield, Cpu, Activity, LogIn, User, Calendar, Bell, ExternalLink, Sparkles, LogOut, X, MessageCircle, Send, Share2, Settings, Key, Terminal } from 'lucide-react';
 import { AudioStreamer } from '../lib/audio-streamer';
 import { LiveSession } from '../lib/live-session';
 import { auth, loginWithGoogle, getUserMemory, saveFact, updateSummary, UserMemory } from '../lib/firebase';
@@ -392,6 +392,8 @@ export default function MayaUI() {
   const [alarms, setAlarms] = useState<{ id: string; time: string; label: string; active: boolean }[]>([]);
   const [events, setEvents] = useState<{ id: string; title: string; date: string; time?: string }[]>([]);
   const [isLogMinimized, setIsLogMinimized] = useState(false);
+  const [showNeuralConfig, setShowNeuralConfig] = useState(false);
+  const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('maya_neural_key') || '');
   const [systemStats, setSystemStats] = useState({
     volume: 80,
     brightness: 100,
@@ -429,10 +431,15 @@ export default function MayaUI() {
       setUser(u);
       if (u) {
         addLog(`User authenticated: ${u.displayName || u.email}`, "info");
-        const mem = await getUserMemory(u.uid);
-        setMemory(mem);
-        if (mem) {
-          addLog("Long-term memory retrieved.", "info");
+        try {
+          const mem = await getUserMemory(u.uid);
+          setMemory(mem);
+          if (mem) {
+            addLog("Long-term memory retrieved.", "info");
+          }
+        } catch (memError: any) {
+          console.error("Memory retrieval failed:", memError);
+          addLog("Could not sync memory (Database permission?).", "alert");
         }
       } else {
         setMemory(null);
@@ -507,17 +514,20 @@ Summary: ${memory.summary || 'No summary yet.'}
 
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
+    const activeKey = customApiKey || process.env.GEMINI_API_KEY;
+
     try {
-      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY') {
-        addLog("Fatal: Neural Key (GEMINI_API_KEY) not configured.", "alert");
-        addLog("Please set your Gemini API Key in the Secrets panel.", "info");
+      if (!activeKey || activeKey === 'MY_GEMINI_API_KEY') {
+        addLog("Fatal: Neural Key not configured.", "alert");
+        addLog("Please set your Gemini API Key in the Neural Config panel.", "info");
+        setShowNeuralConfig(true);
         setStatus('disconnected');
         setIsPowerOn(false);
         isConnectingRef.current = false;
         return;
       }
 
-      liveSessionRef.current = new LiveSession(process.env.GEMINI_API_KEY);
+      liveSessionRef.current = new LiveSession(activeKey);
       await liveSessionRef.current.connect(
         {
           systemInstruction,
@@ -792,24 +802,32 @@ Summary: ${memory.summary || 'No summary yet.'}
     isConnectingRef.current = false;
   };
 
-  const togglePower = () => {
+  const togglePower = async () => {
     if (isPowerOn) {
       stopSession();
       setIsPowerOn(false);
     } else {
-      audioStreamerRef.current?.resume();
-      setIsPowerOn(true);
-      startSession();
+      addLog("System: Activating neural hardware...", "info");
+      try {
+        await audioStreamerRef.current?.requestPermissions();
+        audioStreamerRef.current?.resume();
+        setIsPowerOn(true);
+        startSession();
+      } catch (err: any) {
+        addLog(`Mic permission denied: ${err.message}`, "alert");
+        addLog("Maya cannot listen without neural access (Mic).", "info");
+      }
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-[#020205] text-white flex overflow-hidden font-sans">
+    <>
+      <div className="fixed inset-0 bg-[#020205] text-white flex overflow-hidden font-sans">
       <MatrixBackground isPowerOn={isPowerOn} />
       <MayaNameBackground isPowerOn={isPowerOn} />
       
       {/* Left Sidebar: Alarms & Calendar */}
-      <div className="absolute left-0 top-0 bottom-0 w-64 bg-black/40 backdrop-blur-xl border-r border-white/5 flex flex-col z-30">
+      <div className="relative w-64 bg-black/40 backdrop-blur-xl border-r border-white/5 flex flex-col z-30 flex-none">
         <div className="p-6 border-b border-white/5">
           <div className="flex items-center gap-2 mb-6">
             <Bell size={14} className="text-blue-400" />
@@ -934,7 +952,7 @@ Summary: ${memory.summary || 'No summary yet.'}
       </div>
 
       {/* Main Content Area */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+      <div className="relative flex-1 flex flex-col items-center justify-center z-10 min-w-0">
         {/* Background Glows */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-purple-900/10 rounded-full blur-[160px]" />
@@ -965,10 +983,25 @@ Summary: ${memory.summary || 'No summary yet.'}
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setIsLogMinimized(!isLogMinimized)}
-              className="flex items-center gap-2 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-full border border-white/10 text-[10px] font-mono transition-colors group"
+              className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all group relative overflow-hidden ${
+                !isLogMinimized 
+                  ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
+                  : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:border-white/20'
+              }`}
             >
-              <Activity size={12} className={isLogMinimized ? "text-zinc-500" : "text-purple-400"} />
-              <span className="opacity-40 group-hover:opacity-100 transition-opacity">Neural Hub</span>
+              {!isLogMinimized && (
+                <motion.div 
+                  layoutId="hub-pulse"
+                  className="absolute inset-0 bg-purple-500/5 animate-pulse" 
+                />
+              )}
+              <Activity size={12} className={!isLogMinimized ? "text-purple-400 animate-pulse" : "text-zinc-500"} />
+              <span className="text-[10px] font-mono uppercase tracking-widest font-medium">Neural Hub</span>
+              {isLogMinimized && (
+                <div className="absolute right-2 top-0 bottom-0 flex items-center">
+                  <div className="w-1 h-1 bg-red-500 rounded-full animate-ping" />
+                </div>
+              )}
             </button>
 
             {user ? (
@@ -1238,8 +1271,8 @@ Summary: ${memory.summary || 'No summary yet.'}
 
       {/* Right Activity Log Panel (Collapsible) */}
       <motion.div 
-        animate={{ width: isLogMinimized ? 48 : 240 }}
-        className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden shadow-[-10px_0_30px_rgba(0,0,0,0.5)]"
+        animate={{ width: isLogMinimized ? 48 : 280 }}
+        className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden shadow-[-10px_0_30px_rgba(0,0,0,0.5)] flex-none"
       >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           {!isLogMinimized ? (
@@ -1257,20 +1290,38 @@ Summary: ${memory.summary || 'No summary yet.'}
               animate={{ opacity: 1 }}
               className="flex flex-col items-center gap-4 mt-8"
             >
+               <button 
+                onClick={() => setShowNeuralConfig(true)}
+                className="p-1 hover:bg-white/5 rounded transition-colors"
+                title="Neural Config"
+              >
+                <Settings size={12} className="text-blue-400 opacity-40 hover:opacity-100" />
+              </button>
               <div className="rotate-90 text-[8px] font-mono uppercase tracking-[0.4em] text-purple-500/40 whitespace-nowrap">
                 Intelligence
               </div>
               <Activity size={12} className="text-purple-400 opacity-20" />
             </motion.div>
           )}
-          <button 
-            onClick={() => setIsLogMinimized(!isLogMinimized)}
-            className={`p-1 hover:bg-white/5 rounded transition-colors ${isLogMinimized ? 'absolute top-4 left-1/2 -translate-x-1/2' : ''}`}
-          >
-            <motion.div animate={{ rotate: isLogMinimized ? 180 : 0 }}>
-              <ExternalLink size={10} className="text-white/40" />
-            </motion.div>
-          </button>
+          <div className="flex items-center gap-1">
+            {!isLogMinimized && (
+              <button 
+                onClick={() => setShowNeuralConfig(true)}
+                className="p-1 hover:bg-white/5 rounded transition-colors mr-1"
+                title="Neural Config"
+              >
+                <Settings size={10} className="text-white/20 hover:text-blue-400" />
+              </button>
+            )}
+            <button 
+              onClick={() => setIsLogMinimized(!isLogMinimized)}
+              className={`p-1 hover:bg-white/5 rounded transition-colors ${isLogMinimized ? 'absolute top-4 left-1/2 -translate-x-1/2' : ''}`}
+            >
+              <motion.div animate={{ rotate: isLogMinimized ? 180 : 0 }}>
+                <ExternalLink size={10} className="text-white/40" />
+              </motion.div>
+            </button>
+          </div>
         </div>
 
         {!isLogMinimized && (
@@ -1387,5 +1438,97 @@ Summary: ${memory.summary || 'No summary yet.'}
         )}
       </motion.div>
     </div>
+
+    {/* Neural Hardware Config Modal */}
+    <AnimatePresence>
+      {showNeuralConfig && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 sm:p-12">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowNeuralConfig(false)}
+            className="absolute inset-0 bg-black/80 backdrop-blur-md"
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+            className="relative w-full max-w-lg bg-zinc-950 border border-white/10 rounded-2xl overflow-hidden shadow-[0_30px_100px_rgba(0,0,0,0.8)]"
+          >
+            {/* Header */}
+            <div className="p-6 border-b border-white/5 bg-white/[0.02] flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-500/10 rounded-lg">
+                  <Cpu size={18} className="text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-mono font-bold text-white uppercase tracking-wider">Neural Config</h3>
+                  <p className="text-[10px] font-mono text-white/30 uppercase">Manual Node Management</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowNeuralConfig(false)}
+                className="p-2 hover:bg-white/5 rounded-full transition-colors"
+              >
+                <X size={16} className="text-white/40" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-8 space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Key size={12} className="text-purple-400" />
+                  <label className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/50">Gemini Neural Key</label>
+                </div>
+                
+                <div className="relative group">
+                  <Terminal size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/20 group-focus-within:text-purple-400 transition-colors" />
+                  <input 
+                    type="password" 
+                    value={customApiKey}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomApiKey(val);
+                      localStorage.setItem('maya_neural_key', val);
+                    }}
+                    placeholder="Enter GEMINI_API_KEY..."
+                    className="w-full bg-black border border-white/10 rounded-xl px-12 py-3.5 text-xs font-mono text-white placeholder:text-white/10 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/20 transition-all"
+                  />
+                </div>
+                
+                <div className="bg-blue-500/[0.03] border border-blue-500/10 p-4 rounded-xl flex gap-4 items-start">
+                  <Shield size={16} className="text-blue-400/50 shrink-0 mt-0.5" />
+                  <p className="text-[10px] text-white/40 leading-relaxed font-light">
+                    Note: Manual keys are stored locally in your browser. For production environment synchronization, please use the platform's <span className="text-blue-400/60 font-medium">Secrets Panel</span>.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-6 bg-black flex justify-end gap-3 border-t border-white/5">
+              <button 
+                onClick={() => {
+                  setCustomApiKey('');
+                  localStorage.removeItem('maya_neural_key');
+                }}
+                className="px-6 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest text-white/40 hover:text-red-400 transition-colors"
+              >
+                Clear Node
+              </button>
+              <button 
+                onClick={() => setShowNeuralConfig(false)}
+                className="bg-white/5 hover:bg-white/10 border border-white/10 px-8 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest text-white transition-all"
+              >
+                Seal Link
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+    </>
   );
 }
