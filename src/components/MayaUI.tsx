@@ -6,6 +6,7 @@ import { AudioStreamer } from '../lib/audio-streamer';
 import { LiveSession } from '../lib/live-session';
 import { auth, loginWithGoogle, getUserMemory, saveFact, updateSummary, UserMemory } from '../lib/firebase';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { NeuralCore } from './NeuralCore';
 
 const BASE_SYSTEM_INSTRUCTION = `
 You are Maya, a young, confident, witty, and sassy female AI assistant.
@@ -288,22 +289,31 @@ const MatrixBackground = ({ isPowerOn }: { isPowerOn: boolean }) => {
     const drops: number[] = Array(columns).fill(1);
 
     const draw = () => {
-      // Subtle trail effect
-      ctx.fillStyle = 'rgba(2, 2, 5, 0.05)';
+      // Subtle trail effect for "neural" feel
+      ctx.fillStyle = 'rgba(2, 2, 5, 0.1)';
       ctx.fillRect(0, 0, width, height);
-
-      // Set color based on power state
-      ctx.fillStyle = isPowerOn ? '#a855f7' : '#27272a';
-      ctx.font = `${fontSize}px monospace`;
 
       for (let i = 0; i < drops.length; i++) {
         const text = characters.charAt(Math.floor(Math.random() * characters.length));
+        
+        // Dynamic coloring based on position and power
+        const opacity = Math.random() * 0.5 + 0.2;
+        if (isPowerOn) {
+          // Gradient between purple and blue
+          const ratio = drops[i] * fontSize / height;
+          ctx.fillStyle = ratio > 0.5 ? `rgba(168, 85, 247, ${opacity})` : `rgba(59, 130, 246, ${opacity})`;
+        } else {
+          ctx.fillStyle = `rgba(39, 39, 42, ${opacity})`;
+        }
+        
+        ctx.font = `${fontSize}px monospace`;
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
 
-        if (drops[i] * fontSize > height && Math.random() > 0.975) {
+        // Random reset with varying speeds
+        if (drops[i] * fontSize > height && Math.random() > 0.98) {
           drops[i] = 0;
         }
-        drops[i]++;
+        drops[i] += isPowerOn ? (Math.random() * 0.5 + 0.5) : 0.3;
       }
     };
 
@@ -347,22 +357,22 @@ const MayaNameBackground = ({ isPowerOn }: { isPowerOn: boolean }) => {
       <motion.h1
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ 
-          opacity: isPowerOn ? 0.07 : 0.02,
-          scale: isPowerOn ? 1 : 0.95,
+          opacity: isPowerOn ? 0.04 : 0.015,
+          scale: isPowerOn ? 1.05 : 0.98,
           textShadow: isPowerOn 
             ? [
-                "0 0 20px rgba(168,85,247,0.4)",
-                "0 0 40px rgba(168,85,247,0.6)",
-                "0 0 20px rgba(168,85,247,0.4)"
+                "0 0 20px rgba(168,85,247,0.2)",
+                "0 0 40px rgba(168,85,247,0.3)",
+                "0 0 20px rgba(168,85,247,0.2)"
               ]
             : "none"
         }}
         transition={{ 
-          opacity: { duration: 2 },
-          scale: { duration: 2 },
-          textShadow: { duration: 3, repeat: Infinity, ease: "easeInOut" }
+          opacity: { duration: 3 },
+          scale: { duration: 5, repeat: Infinity, ease: "easeInOut" },
+          textShadow: { duration: 4, repeat: Infinity, ease: "easeInOut" }
         }}
-        className="font-display text-[25vw] tracking-[0.1em] text-white uppercase"
+        className="font-display text-[25vw] tracking-[0.1em] text-white uppercase blur-[2px]"
       >
         Maya
       </motion.h1>
@@ -393,9 +403,12 @@ export default function MayaUI() {
   const [events, setEvents] = useState<{ id: string; title: string; date: string; time?: string }[]>([]);
   const [isLogMinimized, setIsLogMinimized] = useState(false);
   const [showNeuralConfig, setShowNeuralConfig] = useState(false);
+  const [showRavenLogin, setShowRavenLogin] = useState(false);
+  const [showWhatsAppSync, setShowWhatsAppSync] = useState(false);
   const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('maya_neural_key') || '');
   const reconnectCountRef = useRef(0);
   const MAX_RECONNECT_ATTEMPTS = 3;
+  const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [systemStats, setSystemStats] = useState({
     volume: 80,
     brightness: 100,
@@ -409,6 +422,7 @@ export default function MayaUI() {
   const [isBrowserBridgeActive, setIsBrowserBridgeActive] = useState(false);
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [memory, setMemory] = useState<UserMemory | null>(null);
+  const [showStatus, setShowStatus] = useState(true);
   const [socialNotifications, setSocialNotifications] = useState<{ id: string; from: string; text: string; time: string; platform: 'whatsapp' | 'raven' }[]>([]);
   const audioStreamerRef = useRef<AudioStreamer | null>(null);
   const liveSessionRef = useRef<LiveSession | null>(null);
@@ -449,6 +463,15 @@ export default function MayaUI() {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (isPowerOn && status === 'idle') {
+      const timer = setTimeout(() => setShowStatus(false), 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowStatus(true);
+    }
+  }, [status, isPowerOn]);
 
   const handleLogin = async () => {
     addLog("Neural Link: Initiating Identity Sync...", "info");
@@ -509,7 +532,18 @@ export default function MayaUI() {
 
     isConnectingRef.current = true;
     setStatus('connecting');
-    addLog(`Establishing neural link... (Key: ${process.env.GEMINI_API_KEY ? 'Present' : 'Missing'})`, "info");
+    addLog(`Establishing neural link...`, "info");
+    
+    // Safety timeout for connection hanging
+    if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (isConnectingRef.current && status === 'connecting') {
+        isConnectingRef.current = false;
+        setStatus('disconnected');
+        addLog("Neural timeout: Link failed to establish.", "alert");
+        setIsPowerOn(false);
+      }
+    }, 15000);
     
     const memoryContext = memory ? `
 USER MEMORY CONTEXT:
@@ -541,6 +575,7 @@ Summary: ${memory.summary || 'No summary yet.'}
         },
         {
           onOpen: async () => {
+            if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current);
             reconnectCountRef.current = 0;
             isConnectingRef.current = false;
             setStatus('idle');
@@ -841,13 +876,105 @@ Summary: ${memory.summary || 'No summary yet.'}
   };
 
   return (
-    <>
-      <div className="fixed inset-0 bg-[#020205] text-white flex overflow-hidden font-sans">
+    <div className={`min-h-screen neural-bg text-zinc-50 overflow-hidden font-sans selection:bg-blue-500/30 selection:text-white transition-all duration-1000 ${status === 'listening' ? 'contrast-[1.1] brightness-[1.05]' : ''}`}>
+      {/* Visual Glitch Overlays */}
+      <div className="fixed inset-0 pixel-grid pointer-events-none z-0 opacity-20" />
+      <div className="scanline" />
+      
       <MatrixBackground isPowerOn={isPowerOn} />
       <MayaNameBackground isPowerOn={isPowerOn} />
       
+      {/* Header (Top Layer) */}
+      <div className="absolute top-8 left-0 right-0 z-50 flex justify-between items-center px-8 pointer-events-none">
+        <div 
+          className="flex flex-col gap-1 pointer-events-auto transition-transform duration-500"
+          style={{ transform: `translateX(280px)` }} // Offset for Left Sidebar
+        >
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full shadow-[0_0_8px] transition-colors duration-500 ${
+              isPowerOn 
+                ? (status === 'speaking' ? 'bg-blue-400 shadow-blue-500/50' : 'bg-purple-500 shadow-purple-500/50 animate-pulse') 
+                : 'bg-zinc-700 shadow-transparent'
+            }`} />
+            <span className="text-[10px] font-mono tracking-[0.3em] uppercase opacity-60">
+              Maya Core <span className={isPowerOn ? "text-purple-400" : "text-zinc-500"}>{isPowerOn ? 'Online' : 'Offline'}</span>
+            </span>
+          </div>
+          <div className="text-[8px] font-mono uppercase opacity-30 flex gap-3">
+            <span className="flex items-center gap-1"><Shield size={8} /> Secure</span>
+            <span className="flex items-center gap-1"><Cpu size={8} /> {status}</span>
+            <span className="flex items-center gap-1"><Activity size={8} /> Live</span>
+          </div>
+        </div>
+
+        <div 
+          className="flex items-center gap-4 pointer-events-auto transition-transform duration-500"
+          style={{ transform: `translateX(-${(isLogMinimized ? 48 : 280) + 32}px)` }}
+        >
+          <button 
+            onClick={() => setShowNeuralConfig(true)}
+            className="flex items-center gap-2 bg-blue-600/10 hover:bg-blue-600/20 px-4 py-2 rounded-full border border-blue-500/30 text-[10px] font-mono text-blue-400 transition-all uppercase tracking-widest group"
+          >
+            <Key size={12} className="group-hover:rotate-12 transition-transform" />
+            <span className="hidden xl:inline">Neural Config</span>
+          </button>
+
+          <button 
+            onClick={() => setIsLogMinimized(!isLogMinimized)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all group relative overflow-hidden ${
+              !isLogMinimized 
+                ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
+                : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:border-white/20'
+            }`}
+          >
+            {!isLogMinimized && (
+              <motion.div 
+                layoutId="hub-pulse"
+                className="absolute inset-0 bg-purple-500/5 animate-pulse" 
+              />
+            )}
+            <Activity size={12} className={!isLogMinimized ? "text-purple-400 animate-pulse" : "text-zinc-500"} />
+            <span className="text-[10px] font-mono uppercase tracking-widest font-medium hidden xl:inline">Neural Hub</span>
+            {isLogMinimized && (
+              <div className="absolute right-2 top-0 bottom-0 flex items-center">
+                <div className="w-1 h-1 bg-red-500 rounded-full animate-ping" />
+              </div>
+            )}
+          </button>
+
+          {user ? (
+            <div className="flex items-center gap-3 bg-white/5 border border-white/10 pl-1 pr-4 py-1 rounded-full">
+              <img 
+                src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+                alt="Avatar" 
+                className="w-8 h-8 rounded-full border border-white/10"
+                referrerPolicy="no-referrer"
+              />
+              <div className="text-[8px] font-mono uppercase tracking-widest opacity-60">
+                {user.displayName?.split(' ')[0] || 'User'}
+              </div>
+              <button 
+                onClick={() => auth.signOut()}
+                className="p-1 hover:text-red-400 transition-colors"
+                title="Disconnect identity"
+              >
+                <LogOut size={10} />
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={handleLogin}
+              className="flex items-center gap-2 bg-white text-black px-6 py-2 rounded-full text-[10px] font-mono font-bold uppercase tracking-widest hover:bg-blue-400 transition-colors"
+            >
+              <LogIn size={14} />
+              <span>Identity Sync</span>
+            </button>
+          )}
+        </div>
+      </div>
+      
       {/* Left Sidebar: Alarms & Calendar */}
-      <div className="relative w-64 bg-black/40 backdrop-blur-xl border-r border-white/5 flex flex-col z-30 flex-none">
+      <div className="absolute left-0 top-0 bottom-0 w-64 bg-black/40 backdrop-blur-xl border-r border-white/5 flex flex-col z-30 transition-shadow duration-500 hover:shadow-[20px_0_40px_rgba(0,0,0,0.3)]">
         <div className="p-6 border-b border-white/5">
           <div className="flex items-center gap-2 mb-6">
             <Bell size={14} className="text-blue-400" />
@@ -903,75 +1030,117 @@ Summary: ${memory.summary || 'No summary yet.'}
             <Share2 size={14} className="text-pink-400" />
             <h2 className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/60">Social Sync</h2>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <button 
-              onClick={() => {
-                setSocialSync(prev => ({ ...prev, whatsapp: !prev.whatsapp }));
-                addLog(socialSync.whatsapp ? "WhatsApp logged out." : "WhatsApp login successful.", socialSync.whatsapp ? "alert" : "info");
-              }}
-              className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
-                socialSync.whatsapp 
-                  ? 'bg-green-500/10 border-green-500/50 text-green-400 shadow-[0_0_15px_rgba(34,197,94,0.2)]' 
-                  : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
-              }`}
-            >
-              <MessageCircle size={18} />
-              <span className="text-[8px] font-mono uppercase tracking-widest">
-                {socialSync.whatsapp ? 'WhatsApp Active' : 'WhatsApp Login'}
-              </span>
-            </button>
-            <button 
-              onClick={() => {
-                setSocialSync(prev => ({ ...prev, raven: !prev.raven }));
-                addLog(socialSync.raven ? "Raven disconnected." : "Raven synced.", socialSync.raven ? "alert" : "info");
-              }}
-              className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
-                socialSync.raven 
-                  ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.2)]' 
-                  : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
-              }`}
-            >
-              <Send size={18} />
-              <span className="text-[8px] font-mono uppercase tracking-widest">Raven</span>
-            </button>
-          </div>
+        <div className="grid grid-cols-2 gap-3">
+          <button 
+            onClick={() => {
+              if (socialSync.whatsapp) {
+                setSocialSync(prev => ({ ...prev, whatsapp: false }));
+                setIsBrowserBridgeActive(false);
+                addLog("WhatsApp Bridge Terminated.", "alert");
+              } else {
+                setShowWhatsAppSync(true);
+              }
+            }}
+            className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
+              socialSync.whatsapp 
+                ? 'bg-green-500/10 border-green-500/50 text-green-400 shadow-[0_0_15px_rgba(34,197,94,0.2)]' 
+                : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
+            }`}
+          >
+            <MessageCircle size={18} />
+            <span className="text-[8px] font-mono uppercase tracking-widest">
+              {socialSync.whatsapp ? 'WhatsApp Active' : 'WhatsApp Link'}
+            </span>
+          </button>
+          <button 
+            onClick={() => {
+              if (socialSync.raven) {
+                setSocialSync(prev => ({ ...prev, raven: false }));
+                addLog("Raven Neural link severed.", "alert");
+              } else {
+                setShowRavenLogin(true);
+              }
+            }}
+            className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
+              socialSync.raven 
+                ? 'bg-blue-500/10 border-blue-500/50 text-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.2)]' 
+                : 'bg-white/5 border-white/10 text-white/40 hover:bg-white/10'
+            }`}
+          >
+            <Send size={18} />
+            <span className="text-[8px] font-mono uppercase tracking-widest">
+              {socialSync.raven ? 'Raven Online' : 'Raven Sync'}
+            </span>
+          </button>
         </div>
-
-        {/* System Dashboard Panel */}
-        <div className="p-6 border-t border-white/5 bg-black/20">
-          <div className="flex items-center justify-between mb-6">
+        </div>        {/* Neural Display Module (Sidebar Integrated) */}
+        <div className="p-6 border-t border-white/5 bg-black/20 flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <Cpu size={14} className="text-blue-400" />
-              <h2 className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/60">Neural Dashboard</h2>
+              <Sparkles size={14} className={outcome ? "text-yellow-400 animate-pulse" : "text-blue-400"} />
+              <h2 className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/60">Neural Display</h2>
             </div>
-            <button 
-              onClick={() => setShowNeuralConfig(true)}
-              className="p-1.5 hover:bg-white/10 rounded-lg transition-all group"
-              title="Global Settings"
-            >
-              <Settings size={12} className="text-white/20 group-hover:text-blue-400 transition-colors" />
-            </button>
+            {outcome && (
+              <button 
+                onClick={() => setOutcome(null)} 
+                className="p-1 hover:bg-white/10 rounded transition-colors"
+                title="Clear Data"
+              >
+                <X size={10} className="text-white/20" />
+              </button>
+            )}
           </div>
-          <div className="space-y-4">
-            {[
-              { label: 'Volume', value: systemStats.volume, icon: <Zap size={10} />, color: 'bg-blue-500' },
-              { label: 'Brightness', value: systemStats.brightness, icon: <Sparkles size={10} />, color: 'bg-yellow-500' },
-              { label: 'Neural Link', value: systemStats.neuralLink, icon: <Activity size={10} />, color: 'bg-purple-500' },
-              { label: 'CPU Load', value: systemStats.cpuLoad, icon: <Cpu size={10} />, color: 'bg-green-500' },
-            ].map((stat) => (
-              <div key={stat.label} className="space-y-1.5">
-                <div className="flex justify-between items-center text-[8px] font-mono uppercase tracking-widest text-white/40">
-                  <div className="flex items-center gap-1.5">
-                    {stat.icon}
-                    <span>{stat.label}</span>
+          
+          <div className="flex-1 min-h-[140px] flex flex-col justify-center relative overflow-hidden bg-white/[0.02] rounded-xl border border-white/5 p-4 transition-all duration-500">
+            {/* Scanline Effect */}
+            <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_2px,3px_100%] opacity-20" />
+            
+            <AnimatePresence mode="wait">
+              {outcome ? (
+                <motion.div
+                  key={outcome.title}
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 1.05 }}
+                  className="relative z-10"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-1 h-3 bg-blue-500 rounded-full" />
+                    <h3 className="text-[10px] font-mono font-bold text-blue-300 uppercase tracking-wider truncate">{outcome.title}</h3>
                   </div>
+                  <div className="text-[10px] text-white/70 font-light leading-relaxed whitespace-pre-wrap font-mono max-h-[200px] overflow-y-auto scrollbar-hide">
+                    {outcome.content}
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="idle"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center gap-3 opacity-20 py-8"
+                >
+                  <div className="w-8 h-8 border border-dashed border-white/30 rounded-full animate-[spin_8s_linear_infinite]" />
+                  <span className="text-[8px] font-mono uppercase tracking-[0.3em] text-center px-4">Ready for Neural Data</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Mini Stats (Reduced version of the old dashboard) */}
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {[
+              { label: 'Neural', value: systemStats.neuralLink, color: 'bg-purple-500' },
+              { label: 'CPU', value: systemStats.cpuLoad, color: 'bg-green-500' },
+            ].map((stat) => (
+              <div key={stat.label} className="bg-white/[0.03] p-2 rounded-lg border border-white/5">
+                <div className="flex justify-between items-center text-[7px] font-mono uppercase text-white/40 mb-1">
+                  <span>{stat.label}</span>
                   <span>{stat.value}%</span>
                 </div>
                 <div className="h-1 bg-white/5 rounded-full overflow-hidden">
                   <motion.div 
-                    initial={{ width: 0 }}
                     animate={{ width: `${stat.value}%` }}
-                    className={`h-full ${stat.color} shadow-[0_0_8px_rgba(255,255,255,0.1)]`}
+                    className={`h-full ${stat.color}`}
                   />
                 </div>
               </div>
@@ -980,287 +1149,113 @@ Summary: ${memory.summary || 'No summary yet.'}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="relative flex-1 flex flex-col items-center justify-center z-10 min-w-0">
-        {/* Background Glows */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-purple-900/10 rounded-full blur-[160px]" />
+      {/* Main Content Area (Central Visualizer) */}
+      <div className="absolute inset-0 z-10 pointer-events-none">
+        {/* Background Glows (Anchored to Screen Center) */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none overflow-hidden">
+          <div className="w-[800px] h-[800px] bg-purple-900/10 rounded-full blur-[160px] animate-pulse" />
           <motion.div 
             animate={{ 
               opacity: isPowerOn ? [0.1, 0.2, 0.1] : 0.05,
               scale: isPowerOn ? [1, 1.1, 1] : 1
             }}
             transition={{ duration: 4, repeat: Infinity }}
-            className="absolute top-1/4 left-1/3 w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[120px]" 
+            className="absolute w-[400px] h-[400px] bg-blue-600/5 rounded-full blur-[120px]" 
           />
         </div>
 
-        {/* Header */}
-        <div className="absolute top-8 left-0 right-0 px-8 flex justify-between items-center z-10">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isPowerOn ? 'bg-purple-500 animate-pulse' : 'bg-zinc-700'}`} />
-              <span className="text-[10px] font-mono tracking-[0.3em] uppercase opacity-60">Maya Core v4.0</span>
-            </div>
-            <div className="text-[8px] font-mono uppercase opacity-30 flex gap-3">
-              <span className="flex items-center gap-1"><Shield size={8} /> Secure</span>
-              <span className="flex items-center gap-1"><Cpu size={8} /> Neural</span>
-              <span className="flex items-center gap-1"><Activity size={8} /> Live</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsLogMinimized(!isLogMinimized)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-all group relative overflow-hidden ${
-                !isLogMinimized 
-                  ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
-                  : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:border-white/20'
-              }`}
-            >
-              {!isLogMinimized && (
-                <motion.div 
-                  layoutId="hub-pulse"
-                  className="absolute inset-0 bg-purple-500/5 animate-pulse" 
-                />
-              )}
-              <Activity size={12} className={!isLogMinimized ? "text-purple-400 animate-pulse" : "text-zinc-500"} />
-              <span className="text-[10px] font-mono uppercase tracking-widest font-medium">Neural Hub</span>
-              {isLogMinimized && (
-                <div className="absolute right-2 top-0 bottom-0 flex items-center">
-                  <div className="w-1 h-1 bg-red-500 rounded-full animate-ping" />
-                </div>
-              )}
-            </button>
-
-            {user ? (
-              <div className="flex items-center gap-3 bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
-                <div className="text-[10px] font-mono text-white/60">
-                  {user.displayName || 'User'}
-                </div>
-                {user.photoURL ? (
-                  <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full border border-purple-500/50" referrerPolicy="no-referrer" />
-                ) : (
-                  <User size={12} className="text-purple-400" />
-                )}
-              </div>
-            ) : (
-              <button 
-                onClick={handleLogin}
-                className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 px-4 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(147,51,234,0.3)]"
-              >
-                <LogIn size={12} />
-                Sync Identity
-              </button>
-            )}
+        {/* Neural Core Circle (Absolute Center) */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="relative group pointer-events-auto">
+            <NeuralCore 
+              isPowerOn={isPowerOn} 
+              status={status} 
+              onClick={togglePower} 
+            />
             
-            <div className="flex flex-col items-end gap-1">
-               <div className="text-[10px] font-mono uppercase tracking-widest opacity-40 flex items-center gap-2">
-                 {isBrowserBridgeActive && (
-                   <motion.div 
-                     animate={{ opacity: [0.4, 1, 0.4] }}
-                     transition={{ duration: 2, repeat: Infinity }}
-                     className="flex items-center gap-1.5"
-                   >
-                     <div className="w-1.5 h-1.5 bg-green-500 rounded-full shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                     <span className="text-[7px] text-green-500/80">Browser bridged</span>
-                   </motion.div>
-                 )}
-                 Link: <span className={status !== 'disconnected' ? 'text-purple-400' : 'text-zinc-600'}>{status}</span>
-               </div>
-               <div className="w-24 h-1 bg-zinc-900 rounded-full overflow-hidden">
-                 <motion.div 
-                  animate={{ x: isPowerOn ? ['-100%', '100%'] : '-100%' }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                  className="w-1/2 h-full bg-purple-500/50"
-                 />
-               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Visualizer Area */}
-        <div className="relative flex flex-col items-center gap-12 z-10">
-          <div className="relative">
-            {/* Rotating Rings */}
+            {/* Contextual Status Labels */}
             <AnimatePresence>
-              {isPowerOn && (
-                <>
-                  <motion.div
-                    initial={{ rotate: 0, opacity: 0 }}
-                    animate={{ rotate: 360, opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-0 border-t border-r border-purple-500/30 rounded-full -m-12"
-                  />
-                  <motion.div
-                    initial={{ rotate: 0, opacity: 0 }}
-                    animate={{ rotate: -360, opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-                    className="absolute inset-0 border-b border-l border-blue-500/20 rounded-full -m-20"
-                  />
-                  <motion.div
-                    animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.6, 0.3] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                    className="absolute inset-0 bg-purple-500/5 rounded-full -m-4 blur-xl"
-                  />
-                </>
+              {isPowerOn && showStatus && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute left-1/2 -bottom-12 -translate-x-1/2 flex flex-col items-center gap-1"
+                >
+                  <span className="text-[10px] font-mono uppercase tracking-[0.4em] text-blue-400 animate-pulse shadow-[0_0_15px_rgba(59,130,246,0.3)]">
+                    Maya Linked
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,1)]" />
+                    <span className="text-[8px] font-mono uppercase tracking-widest text-white/40">
+                      Sync: Stabilized
+                    </span>
+                  </div>
+                </motion.div>
               )}
             </AnimatePresence>
-
-            {/* Central Orb */}
-            <motion.button
-              onClick={togglePower}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              animate={isPowerOn && (status === 'idle' || status === 'listening') ? {
-                boxShadow: [
-                  "0 0 80px rgba(147,51,234,0.4)",
-                  "0 0 120px rgba(147,51,234,0.7)",
-                  "0 0 80px rgba(147,51,234,0.4)"
-                ]
-              } : {}}
-              transition={{ 
-                boxShadow: { duration: 2, repeat: Infinity, ease: "easeInOut" },
-                default: { duration: 1 }
-              }}
-              className={`relative w-56 h-56 rounded-full flex items-center justify-center transition-all duration-1000 ${
-                isPowerOn 
-                  ? 'bg-gradient-to-br from-purple-600 via-purple-700 to-blue-800' 
-                  : 'bg-zinc-950 border border-zinc-900 shadow-inner'
-              }`}
-            >
-              {isPowerOn ? (
-                <div className="flex flex-col items-center gap-2">
-                  <AnimatePresence mode="wait">
-                    {status === 'speaking' ? (
-                      <motion.div 
-                        key="speaking"
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.8, opacity: 0 }}
-                      >
-                        <Zap className="w-14 h-14 text-white fill-white drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]" />
-                      </motion.div>
-                    ) : status === 'listening' || status === 'idle' ? (
-                      <motion.div
-                        key="listening"
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ 
-                          scale: [1, 1.1, 1],
-                          opacity: [0.7, 1, 0.7]
-                        }}
-                        exit={{ scale: 0.8, opacity: 0 }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-                      >
-                        <Mic className="w-14 h-14 text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.4)]" />
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
-                </div>
-              ) : (
-                <Power className="w-14 h-14 text-zinc-800 transition-colors duration-500 group-hover:text-zinc-700" />
-              )}
-              
-              {/* Inner Glass Reflection */}
-              <div className="absolute inset-2 rounded-full bg-gradient-to-tr from-white/5 to-transparent pointer-events-none" />
-            </motion.button>
           </div>
-
-          {/* Status Text */}
-          <div className="text-center space-y-4">
-            <motion.div
-              animate={isPowerOn ? { y: [0, -5, 0] } : {}}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-            >
-              <h1 className="text-5xl font-extralight tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60">
-                {isPowerOn ? (
-                  status === 'connecting' ? 'Initializing...' :
-                  status === 'speaking' ? 'Maya is talking' :
-                  status === 'listening' ? 'I\'m all ears' : 'Ready for you'
-                ) : 'Maya is offline'}
-              </h1>
-            </motion.div>
-            <div className="flex flex-col items-center gap-2">
-              <div className="flex items-center gap-2">
-                {isPowerOn && (status === 'idle' || status === 'listening') && (
-                  <motion.div 
-                    animate={{ opacity: [0.3, 1, 0.3] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                    className="w-1 h-1 bg-purple-400 rounded-full"
-                  />
-                )}
-                <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-[0.4em]">
-                  {isPowerOn ? (status === 'idle' || status === 'listening' ? 'Neural Link Active' : 'Biometric Sync Established') : 'Tap to sync neural interface'}
-                </p>
-              </div>
-              {isPowerOn && (
-                <motion.div 
-                  initial={{ width: 0 }}
-                  animate={{ width: 40 }}
-                  className="h-[1px] bg-purple-500/50"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Outcome Box (Permanent Display Module) */}
-          <motion.div 
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="w-[400px] bg-zinc-900/30 backdrop-blur-2xl border border-white/5 rounded-2xl overflow-hidden shadow-2xl transition-all duration-500"
-          >
-            <div className="p-3 border-b border-white/5 flex items-center justify-between bg-white/5">
-              <div className="flex items-center gap-2">
-                <Sparkles size={12} className={outcome ? "text-yellow-400 animate-pulse" : "text-white/20"} />
-                <span className="text-[9px] font-mono uppercase tracking-widest text-white/40">Neural Display Module</span>
-              </div>
-              {outcome && (
-                <button onClick={() => setOutcome(null)} className="text-white/20 hover:text-white/60 transition-colors">
-                  <X size={10} />
-                </button>
-              )}
-            </div>
-            <div className="p-6 min-h-[140px] flex flex-col justify-center relative overflow-hidden">
-              {/* Scanline Effect */}
-              <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.1)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[length:100%_2px,3px_100%]" />
-              
-              <AnimatePresence mode="wait">
-                {outcome ? (
-                  <motion.div
-                    key={outcome.title}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 10 }}
-                    className="relative z-10"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="w-1 h-3 bg-purple-500 rounded-full" />
-                      <h3 className="text-[11px] font-mono font-bold text-purple-300 uppercase tracking-wider">{outcome.title}</h3>
-                    </div>
-                    <div className="text-[11px] text-white/70 font-light leading-relaxed whitespace-pre-wrap font-mono">
-                      {outcome.content}
-                    </div>
-                  </motion.div>
-                ) : (
-                  <motion.div 
-                    key="idle"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex flex-col items-center gap-3 opacity-20"
-                  >
-                    <div className="w-8 h-8 border border-dashed border-white/30 rounded-full animate-[spin_8s_linear_infinite]" />
-                    <span className="text-[8px] font-mono uppercase tracking-[0.3em]">Standby for neural data...</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </motion.div>
         </div>
 
-        {/* Waveform */}
-        <div className="absolute bottom-32 left-0 right-0 h-16 flex items-center justify-center gap-1.5 px-12">
+        {/* Floating Status & Outcome (Positioned relative to center) */}
+        <div className="absolute inset-x-0 top-1/2 mt-56 flex flex-col items-center gap-8 pointer-events-auto">
+          <AnimatePresence>
+            {showStatus && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="text-center space-y-6"
+              >
+                <motion.div
+                  key={status + isPowerOn}
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.5 }}
+                >
+                  <h1 className="text-6xl font-extralight tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-white/60">
+                    {isPowerOn ? (
+                      status === 'connecting' ? 'Initializing...' :
+                      status === 'speaking' ? 'Maya is talking' :
+                      status === 'listening' ? 'I\'m all ears' : 'Ready'
+                    ) : (customApiKey ? 'Maya is Standby' : 'Connect Link')}
+                  </h1>
+                </motion.div>
+                <div className="flex flex-col items-center gap-2">
+                  <div className="flex items-center gap-2">
+                    {isPowerOn && (status === 'idle' || status === 'listening') && (
+                      <motion.div 
+                        animate={{ opacity: [0.3, 1, 0.3] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                        className="w-1 h-1 bg-purple-400 rounded-full"
+                      />
+                    )}
+                    <p className="text-[10px] text-zinc-500 font-mono uppercase tracking-[0.4em]">
+                      {isPowerOn ? (status === 'idle' || status === 'listening' ? 'Neural Link Active' : 'Biometric Sync Established') : 'Tap to sync neural interface'}
+                    </p>
+                  </div>
+
+                  {/* API Key Call-to-action */}
+                  {(!customApiKey && (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'MY_GEMINI_API_KEY')) && !isPowerOn && (
+                    <motion.button
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      onClick={() => setShowNeuralConfig(true)}
+                      className="mt-4 flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/20 rounded-full hover:bg-blue-500/20 transition-all text-blue-400 text-[9px] font-mono uppercase tracking-widest"
+                    >
+                      <Key size={10} className="animate-pulse" />
+                      <span>Configure Neural Key</span>
+                    </motion.button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      {/* Waveform (Global Edge Alignment) */}
+      <div className="absolute bottom-32 left-0 right-0 h-16 flex items-center justify-center gap-1.5 px-12 z-10 pointer-events-none">
           {Array.from({ length: 50 }).map((_, i) => (
             <motion.div
               key={i}
@@ -1278,8 +1273,8 @@ Summary: ${memory.summary || 'No summary yet.'}
           ))}
         </div>
 
-        {/* Footer Controls */}
-        <div className="absolute bottom-8 left-0 right-0 px-10 flex justify-between items-center text-[9px] font-mono uppercase tracking-[0.3em] opacity-20">
+        {/* Footer Controls (Global Edge Alignment) */}
+        <div className="absolute bottom-8 left-0 right-0 px-10 flex justify-between items-center text-[9px] font-mono uppercase tracking-[0.3em] opacity-20 z-10 pointer-events-none">
           <div className="flex gap-6">
             <div className="flex items-center gap-2 group cursor-default">
               <Globe size={10} className="group-hover:text-purple-400 transition-colors" /> 
@@ -1296,12 +1291,11 @@ Summary: ${memory.summary || 'No summary yet.'}
             <span>© 2026</span>
           </div>
         </div>
-      </div>
 
       {/* Right Activity Log Panel (Collapsible) */}
       <motion.div 
         animate={{ width: isLogMinimized ? 48 : 280 }}
-        className="bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-20 relative overflow-hidden shadow-[-10px_0_30px_rgba(0,0,0,0.5)] flex-none"
+        className="absolute right-0 top-0 bottom-0 bg-black/40 backdrop-blur-xl border-l border-white/5 flex flex-col z-40 overflow-hidden shadow-[-20px_0_40px_rgba(0,0,0,0.5)]"
       >
         <div className="p-4 border-b border-white/5 flex items-center justify-between">
           {!isLogMinimized ? (
@@ -1466,7 +1460,170 @@ Summary: ${memory.summary || 'No summary yet.'}
           </div>
         )}
       </motion.div>
-    </div>
+
+    {/* Raven Login Modal */}
+    <AnimatePresence>
+      {showRavenLogin && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-12">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+            onClick={() => setShowRavenLogin(false)}
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 30 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 30 }}
+            className="relative w-full max-w-md bg-[#050508] border border-blue-500/20 rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(59,130,246,0.1)]"
+          >
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6 border border-blue-500/30">
+                <Send size={32} className="text-blue-400" />
+              </div>
+              <h2 className="text-2xl font-light uppercase tracking-[0.2em] mb-2 text-white">Raven Neural</h2>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-8">Login with your Gmail/Raven account</p>
+              
+              <div className="w-full space-y-4">
+                <button 
+                  onClick={async () => {
+                    try {
+                      await loginWithGoogle();
+                      setSocialSync(prev => ({ ...prev, raven: true }));
+                      setShowRavenLogin(false);
+                      addLog("Raven linked via Google neural ID.", "action");
+                    } catch (err) {
+                      addLog("Raven Google sync failed.", "alert");
+                    }
+                  }}
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl py-4 px-6 flex items-center justify-center gap-3 transition-all group"
+                >
+                  <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+                  <span className="text-xs font-mono font-bold uppercase tracking-widest text-white/80 group-hover:text-white">Continue with Gmail</span>
+                </button>
+
+                <div className="flex items-center gap-4 py-2">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <span className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">or neural node</span>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <div className="space-y-2 text-left">
+                  <label className="text-[9px] font-mono uppercase text-zinc-600 pl-4 tracking-widest">Node ID</label>
+                  <input 
+                    type="text" 
+                    placeholder="NID-8829-X"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-mono text-white focus:outline-none focus:border-blue-500/50 transition-all placeholder:text-white/5"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 mt-6 mb-8 text-[9px] font-mono text-zinc-500">
+                <Shield size={10} className="text-blue-400" />
+                <span>256-BIT NEURAL ENCRYPTION ACTIVE</span>
+              </div>
+
+              <button 
+                onClick={() => {
+                  setSocialSync(prev => ({ ...prev, raven: true }));
+                  setShowRavenLogin(false);
+                  addLog("Raven Neural link established (Identity Bypass).", "action");
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-2xl py-4 text-xs font-mono font-bold uppercase tracking-[0.2em] transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)]"
+              >
+                Authorize Link
+              </button>
+              
+              <div className="flex flex-col items-center gap-2 mt-6">
+                <a 
+                  href="https://raven.web" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="flex items-center gap-2 text-[9px] font-mono text-blue-400/60 hover:text-blue-400 transition-colors uppercase tracking-widest"
+                >
+                  <ExternalLink size={10} />
+                  <span>Open Raven Web</span>
+                </a>
+                <button 
+                  onClick={() => setShowRavenLogin(false)}
+                  className="text-[9px] font-mono text-zinc-600 hover:text-zinc-400 transition-colors uppercase tracking-widest"
+                >
+                  Cancel Sync
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+
+    {/* WhatsApp Sync Modal */}
+    <AnimatePresence>
+      {showWhatsAppSync && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 sm:p-12">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+            onClick={() => setShowWhatsAppSync(false)}
+          />
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0, y: 30 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.9, opacity: 0, y: 30 }}
+            className="relative w-full max-w-md bg-[#050805] border border-green-500/20 rounded-[2rem] overflow-hidden shadow-[0_0_100px_rgba(34,197,94,0.1)]"
+          >
+            <div className="p-8 flex flex-col items-center text-center">
+              <div className="w-16 h-16 bg-green-500/10 rounded-2xl flex items-center justify-center mb-6 border border-green-500/30">
+                <MessageCircle size={32} className="text-green-400" />
+              </div>
+              <h2 className="text-2xl font-light uppercase tracking-[0.2em] mb-2 text-white">WhatsApp Bridge</h2>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-8">Scan to sync Maya browser module</p>
+              
+              <div className="relative p-4 bg-white rounded-3xl mb-8 group cursor-pointer" onClick={() => {
+                 setSocialSync(prev => ({ ...prev, whatsapp: true }));
+                 setIsBrowserBridgeActive(true);
+                 setShowWhatsAppSync(false);
+                 addLog("WhatsApp browser bridge active. Link established.", "info");
+              }}>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-3xl z-10">
+                  <span className="text-white text-[10px] font-mono uppercase font-bold tracking-widest">Simulate Scan</span>
+                </div>
+                <img 
+                  src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=MAYA_BRDIGE_LINK" 
+                  alt="QR Code" 
+                  className="w-48 h-48"
+                />
+              </div>
+
+              <div className="w-full text-left bg-white/5 border border-white/5 p-4 rounded-2xl space-y-3 mb-8">
+                <div className="flex gap-3 items-start">
+                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">1</div>
+                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Open WhatsApp on your mobile device</p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">2</div>
+                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Go to Settings &gt; Linked Devices</p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">3</div>
+                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Point camera to this neural code</p>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowWhatsAppSync(false)}
+                className="w-full bg-white/5 hover:bg-white/10 text-white/40 rounded-2xl py-4 text-[10px] font-mono uppercase tracking-[0.2em] transition-all"
+              >
+                Cancel Sync
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
 
     {/* Neural Hardware Config Modal */}
     <AnimatePresence>
@@ -1565,6 +1722,40 @@ Summary: ${memory.summary || 'No summary yet.'}
         </div>
       )}
     </AnimatePresence>
-    </>
+
+    {/* Global HUD Metrics */}
+    <AnimatePresence>
+      {showStatus && (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="absolute bottom-12 w-full px-12 flex justify-between items-end invisible lg:visible pointer-events-none z-[60]"
+        >
+          <div className="flex gap-16 pointer-events-auto">
+            <div className="p-4 glass-morphism rounded-2xl border border-white/5 space-y-1">
+              <p className="text-[8px] font-mono uppercase text-zinc-600 tracking-widest">Interface Status</p>
+              <div className="flex items-center gap-2">
+                <div className={`w-1.5 h-1.5 rounded-full ${isPowerOn ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
+                <p className="text-[10px] font-mono uppercase tracking-widest text-white/60">
+                  {isPowerOn ? 'Linked' : 'Offline'}
+                </p>
+              </div>
+            </div>
+            <div className="p-4 glass-morphism rounded-2xl border border-white/5 space-y-1">
+              <p className="text-[8px] font-mono uppercase text-zinc-600 tracking-widest">Neural Load</p>
+              <p className="text-[10px] font-mono uppercase tracking-widest text-white/60">
+                {isPowerOn ? 'Optimized' : 'N/A'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right p-4 glass-morphism rounded-2xl border border-white/5 space-y-1 pointer-events-auto">
+            <p className="text-[8px] font-mono uppercase text-zinc-600 tracking-widest">Protocol Version</p>
+            <p className="text-[10px] font-mono uppercase tracking-widest text-white/60">M.A.Y.A. v3.0-CORE</p>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+    </div>
   );
 }
