@@ -735,10 +735,10 @@ Summary: ${memory.summary || 'No summary yet.'}
                   const { platform, recipient, message } = call.args as any;
                   
                   if (platform === 'whatsapp' && !isBrowserBridgeActive) {
-                    addLog("WhatsApp Bridge inactive.", "alert");
+                    addLog("WhatsApp Bridge inactive. Connection refused.", "alert");
                     return {
                       name: call.name,
-                      response: { error: "I need you to open WhatsApp Web in another tab and ask me to 'sync' so I can establish the browser bridge first, babe." },
+                      response: { error: "My WhatsApp bridge module is not synced with your browser. Please tap the WhatsApp icon in my 'Social Sync' panel, launch the web client, and scan the neural code to establish a link, babe." },
                       id: call.id
                     };
                   }
@@ -1580,36 +1580,55 @@ Summary: ${memory.summary || 'No summary yet.'}
                 <MessageCircle size={32} className="text-green-400" />
               </div>
               <h2 className="text-2xl font-light uppercase tracking-[0.2em] mb-2 text-white">WhatsApp Bridge</h2>
-              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-8">Scan to sync Maya browser module</p>
+              <p className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest mb-6">Link Maya browser module with WhatsApp Web</p>
               
-              <div className="relative p-4 bg-white rounded-3xl mb-8 group cursor-pointer" onClick={() => {
+              <div className="w-full flex flex-col gap-4 mb-8">
+                <button 
+                  onClick={() => {
+                    window.open('https://web.whatsapp.com', '_blank', 'noreferrer');
+                    addLog("Launching WhatsApp Web in secondary node...", "info");
+                  }}
+                  className="w-full py-4 bg-green-500/20 hover:bg-green-500/30 border border-green-500/50 rounded-2xl flex items-center justify-center gap-3 transition-all group"
+                >
+                  <ExternalLink size={16} className="text-green-400 group-hover:rotate-12 transition-transform" />
+                  <span className="text-xs font-mono font-bold uppercase tracking-widest text-green-400">Launch WhatsApp Web</span>
+                </button>
+                
+                <div className="flex items-center gap-4">
+                  <div className="h-px flex-1 bg-white/5" />
+                  <span className="text-[8px] font-mono text-zinc-600 uppercase tracking-widest">then scan hub code</span>
+                  <div className="h-px flex-1 bg-white/5" />
+                </div>
+              </div>
+
+              <div className="relative p-6 bg-white rounded-[2.5rem] mb-8 group cursor-pointer shadow-[0_0_50px_rgba(34,197,94,0.1)]" onClick={() => {
                  setSocialSync(prev => ({ ...prev, whatsapp: true }));
                  setIsBrowserBridgeActive(true);
                  setShowWhatsAppSync(false);
-                 addLog("WhatsApp browser bridge active. Link established.", "info");
+                 addLog("WhatsApp browser bridge active. Sync stabilized.", "action");
+                 addLog("Maya can now intercept neural signals from your browser tab.", "info");
               }}>
-                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 rounded-3xl z-10">
-                  <span className="text-white text-[10px] font-mono uppercase font-bold tracking-widest">Simulate Scan</span>
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 rounded-[2.5rem] z-10 p-8">
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <Zap size={24} className="text-green-400 animate-pulse" />
+                    <span className="text-white text-[10px] font-mono uppercase font-bold tracking-widest">Authorize Neural Sync</span>
+                  </div>
                 </div>
                 <img 
-                  src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=MAYA_BRDIGE_LINK" 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=MAYA_BRDIGE_LINK_${Date.now()}`} 
                   alt="QR Code" 
-                  className="w-48 h-48"
+                  className="w-40 h-40"
                 />
               </div>
 
-              <div className="w-full text-left bg-white/5 border border-white/5 p-4 rounded-2xl space-y-3 mb-8">
-                <div className="flex gap-3 items-start">
-                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">1</div>
-                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Open WhatsApp on your mobile device</p>
+              <div className="w-full text-left bg-white/5 border border-white/5 p-5 rounded-2xl space-y-4 mb-8">
+                <div className="flex gap-4 items-start">
+                  <div className="w-5 h-5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0 border border-green-500/30">1</div>
+                  <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">Launch WhatsApp Web using the link above and ensure you are logged in.</p>
                 </div>
-                <div className="flex gap-3 items-start">
-                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">2</div>
-                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Go to Settings &gt; Linked Devices</p>
-                </div>
-                <div className="flex gap-3 items-start">
-                  <div className="w-4 h-4 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0">3</div>
-                  <p className="text-[9px] text-zinc-400 font-mono leading-tight">Point camera to this neural code</p>
+                <div className="flex gap-4 items-start">
+                  <div className="w-5 h-5 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-[10px] font-mono shrink-0 border border-green-500/30">2</div>
+                  <p className="text-[10px] text-zinc-400 font-mono leading-relaxed">Click the QR code or scan if you have the Maya companion extension active.</p>
                 </div>
               </div>
 
