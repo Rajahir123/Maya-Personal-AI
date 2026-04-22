@@ -36,7 +36,7 @@ export class LiveSession {
             const code = event?.code || "No code";
             console.log(`Connection Close Details: [${code}] ${reason}`);
             this.session = null;
-            callbacks.onClose?.();
+            callbacks.onClose?.(event);
           },
           onmessage: (message: LiveServerMessage) => {
             callbacks.onMessage?.(message);

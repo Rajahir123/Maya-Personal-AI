@@ -557,6 +557,11 @@ Summary: ${memory.summary || 'No summary yet.'}
     if (activeKey && activeKey !== 'MY_GEMINI_API_KEY' && activeKey !== '') {
       const maskedKey = `${activeKey.substring(0, 4)}...${activeKey.substring(activeKey.length - 4)}`;
       addLog(`Neural key detected: ${maskedKey}`, "info");
+
+      if (!activeKey.startsWith('AIza')) {
+        addLog("Warning: Key format mismatch. Gemini API keys usually start with 'AIza'.", "alert");
+        addLog("Current key source: " + (customApiKey ? "Local Config Hub" : "System Environment"), "info");
+      }
     }
 
     try {
@@ -597,20 +602,23 @@ Summary: ${memory.summary || 'No summary yet.'}
               setIsPowerOn(false);
             }
           },
-          onClose: () => {
+          onClose: (event?: any) => {
+            const reason = event?.reason || "Connection dropped";
+            const code = event?.code || "Unknown code";
+
             if (isPowerOn && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
               reconnectCountRef.current++;
               setStatus('connecting');
-              addLog(`Neural link severed. Attempting recovery (${reconnectCountRef.current}/${MAX_RECONNECT_ATTEMPTS})...`, "alert");
+              addLog(`Neural link severed: ${reason} [${code}]. Recovering (${reconnectCountRef.current}/${MAX_RECONNECT_ATTEMPTS})...`, "alert");
               setTimeout(() => {
                 if (isPowerOn) startSession();
               }, 2000);
             } else {
               setStatus('disconnected');
               setIsPowerOn(false);
-              addLog("Neural link severed (Terminal closure).", "alert");
+              addLog(`Neural link severed: ${reason} [${code}]. (Terminal closure)`, "alert");
               if (reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) {
-                addLog("Max recovery attempts reached. Please check your network or neural key.", "info");
+                addLog("Max recovery attempts reached. Please check your network or verify your neural key starts with 'AIza'.", "info");
               }
               isConnectingRef.current = false;
               reconnectCountRef.current = 0;
