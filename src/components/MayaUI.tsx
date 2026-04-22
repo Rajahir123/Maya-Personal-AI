@@ -443,6 +443,15 @@ export default function MayaUI() {
   };
 
   useEffect(() => {
+    // Forget past keys as requested for the new neural patch reset
+    const purgeKeys = () => {
+      localStorage.removeItem('maya_neural_key');
+      setCustomApiKey('');
+      addLog("Memory Purge: All past neural credentials forgotten.", "alert");
+      addLog("System: Neural Bridge is now clear and ready for Patch v2.5.", "info");
+    };
+    purgeKeys();
+
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
@@ -605,6 +614,14 @@ Summary: ${memory.summary || 'No summary yet.'}
           onClose: (event?: any) => {
             const reason = event?.reason || "Connection dropped";
             const code = event?.code || "Unknown code";
+            const lowerReason = reason.toLowerCase();
+
+            // Handle Quota Issues Specifically
+            if (lowerReason.includes('quota') || code === 1011 || lowerReason.includes('limit exceeded')) {
+              addLog("Neural bandwidth exhausted (Quota Exceeded).", "alert");
+              addLog("Hint: Upgrade your API project to 'Pay-as-you-go' at aistudio.google.com/app/billing.", "info");
+              reconnectCountRef.current = MAX_RECONNECT_ATTEMPTS; // Stop retrying immediately
+            }
 
             if (isPowerOn && reconnectCountRef.current < MAX_RECONNECT_ATTEMPTS) {
               reconnectCountRef.current++;
@@ -633,6 +650,11 @@ Summary: ${memory.summary || 'No summary yet.'}
             }
             if (msg.includes("unsupported") || msg.includes("model")) {
               addLog("Hint: The selected model may be temporarily unavailable in your region.", "info");
+            }
+            if (msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("limit exceeded")) {
+              addLog("Neural bandwidth exhausted. Check your Google AI Studio quota limits.", "info");
+              addLog("Direct link: https://aistudio.google.com/app/plan_information", "info");
+              reconnectCountRef.current = MAX_RECONNECT_ATTEMPTS;
             }
             // If error is fatal, we may want to stop reconnecting
             if (msg.includes("INVALID_ARGUMENT") || msg.includes("PERMISSION_DENIED")) {

@@ -5,6 +5,7 @@ export type SessionConfig = {
   systemInstruction?: string;
   voiceName?: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr';
   tools?: any[];
+  model?: string;
 };
 
 export class LiveSession {
@@ -22,9 +23,10 @@ export class LiveSession {
     onError?: (error: any) => void;
   }) {
     try {
-      console.log("Connecting with model:", "gemini-3.1-flash-live-preview");
+      const modelName = config.model || "gemini-3.1-flash-live-preview";
+      console.log("Connecting with model:", modelName);
       this.session = await this.ai.live.connect({
-        model: "gemini-3.1-flash-live-preview",
+        model: modelName,
         callbacks: {
           onopen: () => {
             console.log("Live session connection established (WebSocket open)");
