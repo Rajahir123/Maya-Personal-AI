@@ -31,7 +31,10 @@ export class LiveSession {
             callbacks.onOpen?.();
           },
           onclose: (event: any) => {
-            console.log("Live session connection closed by server or network:", event);
+            console.log("Live session connection closed:", event);
+            const reason = event?.reason || "No reason provided";
+            const code = event?.code || "No code";
+            console.log(`Connection Close Details: [${code}] ${reason}`);
             this.session = null;
             callbacks.onClose?.();
           },
@@ -41,6 +44,7 @@ export class LiveSession {
           onerror: (error: any) => {
             console.error("Live session protocol error:", error);
             const errorMsg = error?.message || error?.toString() || "Unknown neural protocol error";
+            console.log(`Neural Protocol Error Detail: ${errorMsg}`);
             if (errorMsg.includes("unauthorized domain")) {
               callbacks.onError?.(new Error("UNAUTHORIZED_DOMAIN: Please add this URL to Firebase Auth > Authorized domains."));
             } else {

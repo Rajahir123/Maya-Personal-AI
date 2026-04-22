@@ -53,7 +53,7 @@ export class AudioStreamer {
     };
 
     this.source.connect(this.processor);
-    this.processor.connect(this.audioContext.destination);
+    // this.processor.connect(this.audioContext.destination); // feedback loop removed
   }
 
   stopCapture() {

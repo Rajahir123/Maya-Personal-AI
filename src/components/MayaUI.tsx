@@ -407,7 +407,7 @@ export default function MayaUI() {
   const [showWhatsAppSync, setShowWhatsAppSync] = useState(false);
   const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('maya_neural_key') || '');
   const reconnectCountRef = useRef(0);
-  const MAX_RECONNECT_ATTEMPTS = 3;
+  const MAX_RECONNECT_ATTEMPTS = 5;
   const connectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [systemStats, setSystemStats] = useState({
     volume: 80,
@@ -554,6 +554,10 @@ Summary: ${memory.summary || 'No summary yet.'}
     const systemInstruction = `${BASE_SYSTEM_INSTRUCTION}\n${memoryContext}`;
 
     const activeKey = customApiKey || process.env.GEMINI_API_KEY;
+    if (activeKey && activeKey !== 'MY_GEMINI_API_KEY') {
+      const maskedKey = `${activeKey.substring(0, 4)}...${activeKey.substring(activeKey.length - 4)}`;
+      addLog(`Neural key detected: ${maskedKey}`, "info");
+    }
 
     try {
       if (!activeKey || activeKey === 'MY_GEMINI_API_KEY') {
@@ -604,12 +608,27 @@ Summary: ${memory.summary || 'No summary yet.'}
             } else {
               setStatus('disconnected');
               setIsPowerOn(false);
-              addLog("Neural link severed (Connection closed).", "alert");
+              addLog("Neural link severed (Terminal closure).", "alert");
               if (reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) {
                 addLog("Max recovery attempts reached. Please check your network or neural key.", "info");
               }
               isConnectingRef.current = false;
               reconnectCountRef.current = 0;
+            }
+          },
+          onError: (error: any) => {
+            console.error("Neural Bridge Protocol Error:", error);
+            const msg = error?.message || String(error) || "Unknown neural protocol sync error";
+            addLog(`Neural Bridge Error: ${msg}`, "alert");
+            if (msg.toLowerCase().includes("api key") || msg.toLowerCase().includes("unauthorized")) {
+              addLog("Hint: Verify your Gemini API key in the configuration hub.", "info");
+            }
+            if (msg.includes("unsupported") || msg.includes("model")) {
+              addLog("Hint: The selected model may be temporarily unavailable in your region.", "info");
+            }
+            // If error is fatal, we may want to stop reconnecting
+            if (msg.includes("INVALID_ARGUMENT") || msg.includes("PERMISSION_DENIED")) {
+              reconnectCountRef.current = MAX_RECONNECT_ATTEMPTS;
             }
           },
           onMessage: (message) => {
@@ -825,14 +844,6 @@ Summary: ${memory.summary || 'No summary yet.'}
                 setStatus('idle');
                 addLog("Turn complete. Standing by.", "info");
             }
-          },
-          onError: (err: any) => {
-            console.error("Maya Session Error:", err);
-            setStatus('disconnected');
-            setIsPowerOn(false);
-            const msg = err?.message || String(err);
-            addLog(`Session error: ${msg}`, "alert");
-            isConnectingRef.current = false;
           }
         }
       );
